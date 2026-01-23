@@ -11,19 +11,20 @@ import (
 
 type WSC struct {
 	ws *websocket.Conn
+	rm *hub.RoomManager
 	ID int
 
 	bcast chan byte
 	action *chan byte
 }
 
-func NewWebSocketHandler() http.Handler {
+func NewWebSocketHandler(rm *hub.RoomManager) http.Handler {
 	return websocket.Handler(func (ws *websocket.Conn) {
 		defer ws.Close()
 
 		log.Println("New connection; Creating client")
 
-		client := &WSC{ws:ws, action:nil}
+		client := &WSC{ws:ws, rm:rm, action:nil}
 		var wg sync.WaitGroup
 
 		wg.Go(client.readPump)
@@ -60,5 +61,5 @@ func (wsc *WSC) readPump() {
 }
 
 func (wsc *WSC) handleAction(msg string) {
-	;
+	// TODO: implement
 }

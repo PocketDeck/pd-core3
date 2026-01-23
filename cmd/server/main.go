@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"PocketDeck/pd-core3/internal/hub"
 	"PocketDeck/pd-core3/internal/server"
 )
 
@@ -13,8 +14,10 @@ func main() {
 	port := flag.String("port", "8080", "port")
 	flag.Parse()
 
-	http.Handle("/ws", server.NewWebSocketHandler())
+	rm := hub.NewRoomManager()
 
-	log.Println("Starting server on", *host + ":" + *port)
-	log.Fatal(http.ListenAndServe(*host + ":" + *port, nil))
+	http.Handle("/ws", server.NewWebSocketHandler(rm))
+
+	log.Println("Starting server on", *host+":"+*port)
+	log.Fatal(http.ListenAndServe(*host+":"+*port, nil))
 }
