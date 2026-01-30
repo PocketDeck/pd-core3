@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"PocketDeck/pd-core3/internal/hub"
+
 	"golang.org/x/net/websocket"
 )
 
@@ -19,21 +20,24 @@ type WSC struct {
 }
 
 func NewWebSocketHandler(rm *hub.RoomManager) http.Handler {
-	return websocket.Handler(func (ws *websocket.Conn) {
-		defer ws.Close()
+	return websocket.Server{
+		Handler: func (ws *websocket.Conn) {
+			defer ws.Close()
 
-		log.Println("New connection; Creating client")
+			log.Println("New connection; Creating client")
 
-		client := &WSC{ws:ws, rm:rm, action:nil}
-		var wg sync.WaitGroup
+			client := &WSC{ws:ws, rm:rm, action:nil}
+			client.bcast = make(chan byte, 256)
+			var wg sync.WaitGroup
 
-		wg.Go(client.readPump)
-		wg.Go(client.writePump)
+			wg.Go(client.readPump)
+			wg.Go(client.writePump)
 
-		wg.Wait()
-		close(client.bcast)
-		ws.Close()
-	})
+			wg.Wait()
+			close(client.bcast)
+			ws.Close()
+		},
+	}
 }
 
 func (wsc *WSC) writePump() {
@@ -62,4 +66,5 @@ func (wsc *WSC) readPump() {
 
 func (wsc *WSC) handleAction(msg string) {
 	// TODO: implement
+	log.Println("Received action:", msg)
 }
