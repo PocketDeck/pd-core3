@@ -1,8 +1,8 @@
 package game
 
 type Game interface {
-	HandleAction(userID int, payload []byte)
-	State(userID int) any
+	HandleAction(playerName string, payload []byte)
+	State(playerName string) any
 }
 
 type GameType string

@@ -1,14 +1,22 @@
 package hub
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+)
 
 type User struct {
-	ID   int
-	Name string
+	ID     int
+	Player *Player
+	ready  atomic.Bool
+	Send   chan []byte
+}
 
-	ready atomic.Bool
-
-	Send *chan []byte
+func NewUser(id int, send chan []byte) *User {
+	return &User{
+		ID:    id,
+		ready: atomic.Bool{},
+		Send:  send,
+	}
 }
 
 func (u *User) IsReady() bool {
@@ -21,10 +29,9 @@ func (u *User) SetReady(v bool) {
 
 func (u *User) TrySend(msg []byte) bool {
 	select {
-	case *u.Send <- msg:
+	case u.Send <- msg:
 		return true
 	default:
 		return false
 	}
 }
-
