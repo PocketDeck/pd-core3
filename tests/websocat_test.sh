@@ -8,7 +8,7 @@ set -u
 SERVER_BIN="./pd-server"
 SERVER_HOST="localhost"
 SERVER_PORT="18080"
-SERVER_URL="ws://${SERVER_HOST}:${SERVER_PORT}/ws"
+SERVER_URL="ws://${SERVER_HOST}:${SERVER_PORT}/"
 PASS=0
 FAIL=0
 TOTAL=0
@@ -42,7 +42,7 @@ ws_session_start() {
     mkfifo "/tmp/pd_in_$name" "/tmp/pd_out_$name"
 
     # Start websocat reading from fifo and writing to fifo
-    websocat -n "ws://${SERVER_HOST}:${SERVER_PORT}/ws" </tmp/pd_in_$name >"/tmp/pd_out_$name" 2>/dev/null &
+    websocat -n "ws://${SERVER_HOST}:${SERVER_PORT}/" </tmp/pd_in_$name >"/tmp/pd_out_$name" 2>/dev/null &
     eval "WS_PID_$name=\$!"
     eval "exec {FD_IN_$name}>/tmp/pd_in_$name"
     eval "exec {FD_OUT_$name}</tmp/pd_out_$name"
@@ -162,6 +162,9 @@ test_full_flow() {
     check_action "$resp" "joined" "Alice creates room"
     room_id=$(echo "$resp" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('roomID',''))" 2>/dev/null || echo "")
 
+    # Read navigate broadcast
+    resp=$(ws_session_recv "alice" 1)
+
     # Read players broadcast
     resp=$(ws_session_recv "alice" 1)
 
@@ -217,6 +220,7 @@ test_two_player_ready_and_start() {
     resp=$(ws_session_recv "alice")
     check_action "$resp" "joined" "Alice creates room"
     room_id=$(echo "$resp" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('roomID',''))" 2>/dev/null || echo "")
+    ws_session_recv "alice" 0.5  # drain: navigate broadcast from create
     ws_session_recv "alice" 0.5  # drain: players broadcast from create
 
     # Bob joins
@@ -224,9 +228,10 @@ test_two_player_ready_and_start() {
     resp=$(ws_session_recv "bob")
     check_action "$resp" "joined" "Bob joins room"
 
-    # Drain players broadcasts from Bob joining (both Alice and Bob get one)
-    ws_session_recv "bob" 0.5
-    ws_session_recv "alice" 0.5
+    # Drain navigate and players broadcasts from Bob joining (Bob gets navigate+players, Alice gets players)
+    ws_session_recv "bob" 0.5   # drain: navigate
+    ws_session_recv "bob" 0.5   # drain: players
+    ws_session_recv "alice" 0.5 # drain: players
 
     # Alice readies
     ws_session_send "alice" '{"action":"ready"}'
@@ -248,6 +253,8 @@ test_two_player_ready_and_start() {
     check_action "$resp" "start" "Alice receives start"
     resp=$(ws_session_recv "bob" 2)
     check_action "$resp" "start" "Bob receives start"
+    ws_session_recv "alice" 0.5  # drain: navigate broadcast
+    ws_session_recv "bob" 0.5    # drain: navigate broadcast
 
     ws_session_stop "alice"
     ws_session_stop "bob"

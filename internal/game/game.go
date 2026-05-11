@@ -3,6 +3,7 @@ package game
 type Game interface {
 	HandleAction(playerName string, payload []byte)
 	State(playerName string) any
+	Type() GameType
 }
 
 type GameType string

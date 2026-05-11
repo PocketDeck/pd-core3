@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+
+	"PocketDeck/pd-core3/internal/game"
 )
 
 type MockGame struct {
@@ -20,6 +22,10 @@ func (m *MockGame) HandleAction(playerName string, payload []byte) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.actions = append(m.actions, playerName)
+}
+
+func (m *MockGame) Type() game.GameType {
+	return game.GameType("mock")
 }
 
 func (m *MockGame) State(playerName string) any {

@@ -27,6 +27,13 @@ Create a new game room and join as the first player
     "roomID": "abc123"
   }
   ```
+- `navigate` - Navigate to lobby
+  ```json
+  {
+    "action": "navigate",
+    "page": "/lobby"
+  }
+  ```
 - `players` - (Broadcast) Player list update
 - `error` - Error occurred
   ```json
@@ -56,6 +63,13 @@ Join an existing game room
   {
     "action": "joined",
     "roomID": "abc123"
+  }
+  ```
+- `navigate` - Navigate to lobby
+  ```json
+  {
+    "action": "navigate",
+    "page": "/lobby"
   }
   ```
 - `players` - (Broadcast) Player list update
@@ -90,6 +104,13 @@ Mark yourself as ready to start the game
 - `start` - (Broadcast, if all players ready) Game started
   ```json
   { "action": "start" }
+  ```
+- `navigate` - (Broadcast) Navigate to game page
+  ```json
+  {
+    "action": "navigate",
+    "page": "/games/uno"
+  }
   ```
 - `error` - Error occurred
   ```json
@@ -137,6 +158,13 @@ Leave the current game room
 - `left` - Acknowledgment
   ```json
   { "action": "left" }
+  ```
+- `navigate` - Navigate to home
+  ```json
+  {
+    "action": "navigate",
+    "page": "/"
+  }
   ```
 - `players` - (Broadcast) Player list update
 - `error` - Error occurred
@@ -235,3 +263,18 @@ Broadcast when all players are ready
 ```json
 { "action": "start" }
 ```
+
+### Navigate
+Sent to navigate the client to a different page
+
+```json
+{
+  "action": "navigate",
+  "page": "/lobby"
+}
+```
+
+**Note:** The client never decides where to navigate. The server always sends `navigate` when a route change is needed:
+- After `joined` → navigates to `/lobby`
+- After `start` → navigates to `/games/uno` (or whatever game was configured)
+- After `left` → navigates to `/`

@@ -16,7 +16,7 @@ func main() {
 
 	rm := hub.NewRoomManager()
 
-	http.Handle("/ws", server.NewWebSocketHandler(rm))
+	http.Handle("/", server.NewWebSocketHandler(rm))
 
 	log.Println("Starting server on", *host+":"+*port)
 	log.Fatal(http.ListenAndServe(*host+":"+*port, nil))

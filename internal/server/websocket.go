@@ -225,6 +225,11 @@ func (wsc *WSC) joinRoom(room *hub.Room, name string) {
 		"roomID": room.ID,
 	})
 
+	wsc.sendResponse(map[string]interface{}{
+		"action": "navigate",
+		"page":   "/lobby",
+	})
+
 	room.BroadcastPlayerUpdate()
 }
 
@@ -236,6 +241,11 @@ func (wsc *WSC) handleLeave() {
 
 	wsc.sendResponse(map[string]interface{}{
 		"action": "left",
+	})
+
+	wsc.sendResponse(map[string]interface{}{
+		"action": "navigate",
+		"page":   "/",
 	})
 
 	wsc.leaveRoom()
@@ -270,6 +280,12 @@ func (wsc *WSC) handleReady(ready bool) {
 
 	if wsc.room.AllReady() {
 		wsc.room.Broadcast([]byte(`{"action":"start"}`))
+		gamePage := "/games/" + string(wsc.room.GameType())
+		navigateMsg, _ := json.Marshal(map[string]interface{}{
+			"action": "navigate",
+			"page":   gamePage,
+		})
+		wsc.room.Broadcast(navigateMsg)
 	}
 }
 

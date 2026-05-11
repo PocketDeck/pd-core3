@@ -107,6 +107,17 @@ func (r *Room) AllReady() bool {
 	return true
 }
 
+func (r *Room) GameType() game.GameType {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if r.game == nil {
+		return ""
+	}
+
+	return r.game.Type()
+}
+
 func (r *Room) HandleAction(playerName string, payload []byte) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

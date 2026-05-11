@@ -20,7 +20,7 @@ func dialServer(t *testing.T, mux *http.ServeMux) (*websocket.Conn, *httptest.Se
 	server := httptest.NewServer(mux)
 	t.Cleanup(func() { server.Close() })
 
-	wsURL := "ws" + server.URL[4:] + "/ws"
+	wsURL := "ws" + server.URL[4:] + "/"
 	ws, err := websocket.Dial(wsURL, "", "http://localhost/")
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
@@ -96,7 +96,7 @@ func recvMsgTimeout(t *testing.T, ws *websocket.Conn, timeout time.Duration) (ma
 
 func makeMux(rm *hub.RoomManager) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.Handle("/ws", NewWebSocketHandler(rm))
+	mux.Handle("/", NewWebSocketHandler(rm))
 	return mux
 }
 
@@ -166,8 +166,9 @@ func TestIntegrationJoinRoom(t *testing.T) {
 	createResp := recvMsg(t, ws1)
 	roomID := createResp["roomID"].(string)
 
-	// clear the players broadcast from create
-	recvMsg(t, ws1)
+	// clear the navigate and players broadcast from create
+	recvMsg(t, ws1) // navigate
+	recvMsg(t, ws1) // players
 
 	ws2, _ := dialServer(t, mux)
 	sendMsg(t, ws2, map[string]interface{}{
@@ -225,6 +226,7 @@ func TestIntegrationLeaveRoom(t *testing.T) {
 		"game":   "uno",
 	})
 	recvMsg(t, ws) // joined
+	recvMsg(t, ws) // navigate
 	recvMsg(t, ws) // players
 
 	sendMsg(t, ws, map[string]interface{}{
@@ -232,6 +234,7 @@ func TestIntegrationLeaveRoom(t *testing.T) {
 	})
 	resp := recvMsg(t, ws)
 	assertAction(t, resp, "left")
+	recvMsg(t, ws) // navigate
 }
 
 func TestIntegrationLeaveWhenStray(t *testing.T) {
@@ -255,12 +258,14 @@ func TestIntegrationCreateAfterLeave(t *testing.T) {
 		"game":   "uno",
 	})
 	recvMsg(t, ws) // joined
+	recvMsg(t, ws) // navigate
 	recvMsg(t, ws) // players
 
 	sendMsg(t, ws, map[string]interface{}{
 		"action": "leave",
 	})
 	recvMsg(t, ws) // left
+	recvMsg(t, ws) // navigate
 
 	sendMsg(t, ws, map[string]interface{}{
 		"action": "create",
@@ -283,10 +288,12 @@ func TestIntegrationReconnect(t *testing.T) {
 	})
 	createResp := recvMsg(t, ws1)
 	roomID := createResp["roomID"].(string)
+	recvMsg(t, ws1) // navigate
 	recvMsg(t, ws1) // players
 
 	// First connection disconnects (close)
 	ws1.Close()
+	time.Sleep(50 * time.Millisecond) // allow async cleanup
 
 	// Reconnect with same name
 	ws2, srv := dialServer(t, mux)
@@ -313,6 +320,7 @@ func TestIntegrationNameTaken(t *testing.T) {
 	})
 	createResp := recvMsg(t, ws1)
 	roomID := createResp["roomID"].(string)
+	recvMsg(t, ws1) // navigate
 	recvMsg(t, ws1) // players
 
 	// Second connection tries same name while Alice is active
@@ -338,6 +346,7 @@ func TestIntegrationReadyAndStart(t *testing.T) {
 	})
 	createResp := recvMsg(t, ws1)
 	roomID := createResp["roomID"].(string)
+	recvMsg(t, ws1) // navigate
 	recvMsg(t, ws1) // players broadcast
 
 	ws2, _ := dialServer(t, mux)
@@ -347,6 +356,7 @@ func TestIntegrationReadyAndStart(t *testing.T) {
 		"roomID": roomID,
 	})
 	recvMsg(t, ws2)           // joined
+	recvMsg(t, ws2)           // navigate
 	recvMsg(t, ws2)           // players broadcast (from Bob joining)
 	recvMsg(t, ws1)           // players broadcast (from Bob joining)
 
@@ -361,7 +371,7 @@ func TestIntegrationReadyAndStart(t *testing.T) {
 		"action": "ready",
 	})
 	recvMsg(t, ws2) // ready ack
-	// After the ready ack, there's a players broadcast, then start
+	// After the ready ack, there's a players broadcast, then start, then navigate
 	recvMsg(t, ws1) // players broadcast (Bob ready)
 	recvMsg(t, ws2) // players broadcast (Bob ready)
 
@@ -369,6 +379,8 @@ func TestIntegrationReadyAndStart(t *testing.T) {
 	start2 := recvMsg(t, ws2)
 	assertAction(t, start1, "start")
 	assertAction(t, start2, "start")
+	recvMsg(t, ws1) // navigate
+	recvMsg(t, ws2) // navigate
 }
 
 func TestIntegrationUnready(t *testing.T) {
@@ -385,6 +397,7 @@ func TestIntegrationUnready(t *testing.T) {
 	})
 	createResp := recvMsg(t, ws1)
 	roomID := createResp["roomID"].(string)
+	recvMsg(t, ws1) // navigate
 	recvMsg(t, ws1) // players
 
 	// Bob joins so that AllReady doesn't trigger with just Alice
@@ -394,6 +407,7 @@ func TestIntegrationUnready(t *testing.T) {
 		"roomID": roomID,
 	})
 	recvMsg(t, ws2) // joined
+	recvMsg(t, ws2) // navigate
 	recvMsg(t, ws2) // players
 	recvMsg(t, ws1) // players
 
@@ -436,6 +450,7 @@ func TestIntegrationStatus(t *testing.T) {
 		"game":   "uno",
 	})
 	recvMsg(t, ws1) // joined
+	recvMsg(t, ws1) // navigate
 	recvMsg(t, ws1) // players
 
 	sendMsg(t, ws1, map[string]interface{}{
@@ -480,6 +495,7 @@ func TestIntegrationGameAction(t *testing.T) {
 		"game":   "uno",
 	})
 	recvMsg(t, ws) // joined
+	recvMsg(t, ws) // navigate
 	recvMsg(t, ws) // players
 
 	sendMsg(t, ws, map[string]interface{}{
@@ -498,6 +514,7 @@ func TestIntegrationGameActionMissingPayload(t *testing.T) {
 		"game":   "uno",
 	})
 	recvMsg(t, ws) // joined
+	recvMsg(t, ws) // navigate
 	recvMsg(t, ws) // players
 
 	sendMsg(t, ws, map[string]interface{}{
@@ -551,6 +568,7 @@ func TestIntegrationNotStrayErrors(t *testing.T) {
 		"game":   "uno",
 	})
 	recvMsg(t, ws) // joined
+	recvMsg(t, ws) // navigate
 	recvMsg(t, ws) // players
 
 	// Should error since we're bound
@@ -584,6 +602,10 @@ func TestIntegrationPlayersBroadcastOnJoin(t *testing.T) {
 	joined := recvMsg(t, ws1)
 	roomID := joined["roomID"].(string)
 
+	// Navigate
+	navigateMsg := recvMsg(t, ws1)
+	assertAction(t, navigateMsg, "navigate")
+
 	// First broadcast: Alice joins
 	playersMsg := recvMsg(t, ws1)
 	assertAction(t, playersMsg, "players")
@@ -600,6 +622,7 @@ func TestIntegrationPlayersBroadcastOnJoin(t *testing.T) {
 		"roomID": roomID,
 	})
 	recvMsg(t, ws2) // joined
+	recvMsg(t, ws2) // navigate
 
 	// ws2 gets players broadcast
 	playersMsg2 := recvMsg(t, ws2)
@@ -691,6 +714,7 @@ func TestIntegrationJoinThenStatusShowsTwoPlayers(t *testing.T) {
 	})
 	joined := recvMsg(t, ws1)
 	roomID := joined["roomID"].(string)
+	recvMsg(t, ws1) // navigate
 	recvMsg(t, ws1) // players (Alice)
 
 	ws2, _ := dialServer(t, mux)
@@ -731,6 +755,7 @@ func TestIntegrationJoinAndReadyMultiple(t *testing.T) {
 	})
 	createResp := recvMsg(t, ws1)
 	roomID := createResp["roomID"].(string)
+	recvMsg(t, ws1) // navigate
 	recvMsg(t, ws1) // players
 
 	ws2, _ := dialServer(t, mux)
@@ -740,6 +765,7 @@ func TestIntegrationJoinAndReadyMultiple(t *testing.T) {
 		"roomID": roomID,
 	})
 	recvMsg(t, ws2)           // joined
+	recvMsg(t, ws2)           // navigate
 	recvMsg(t, ws2)           // players
 	recvMsg(t, ws1)           // players
 
@@ -764,6 +790,15 @@ func TestIntegrationJoinAndReadyMultiple(t *testing.T) {
 	}
 	if start1["action"] != "start" || start2["action"] != "start" {
 		t.Error("Expected 'start' action for both")
+	}
+	// Both should get navigate after start
+	nav1, ok1 := recvMsgTimeout(t, ws1, time.Second)
+	nav2, ok2 := recvMsgTimeout(t, ws2, time.Second)
+	if !ok1 || !ok2 {
+		t.Fatal("Expected both to receive navigate broadcast")
+	}
+	if nav1["action"] != "navigate" || nav2["action"] != "navigate" {
+		t.Error("Expected 'navigate' action for both")
 	}
 }
 
