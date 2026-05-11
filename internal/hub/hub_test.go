@@ -18,10 +18,15 @@ func NewMockGame() *MockGame {
 	return &MockGame{}
 }
 
-func (m *MockGame) HandleAction(playerName string, payload []byte) {
+func (m *MockGame) HandleAction(playerName string, payload []byte) []game.GameMessage {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.actions = append(m.actions, playerName)
+	return nil
+}
+
+func (m *MockGame) Start(players []string) []game.GameMessage {
+	return nil
 }
 
 func (m *MockGame) Type() game.GameType {
@@ -48,7 +53,7 @@ func makeSendChan() chan []byte {
 }
 
 func TestRoomCreation(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 
 	if room.ID != "test-room" {
 		t.Errorf("Expected room ID 'test-room', got '%s'", room.ID)
@@ -56,7 +61,7 @@ func TestRoomCreation(t *testing.T) {
 }
 
 func TestAddAndGetPlayer(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 
 	player := room.AddPlayer("Alice")
 	if player == nil {
@@ -74,7 +79,7 @@ func TestAddAndGetPlayer(t *testing.T) {
 }
 
 func TestGetNonExistentPlayer(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 
 	player := room.GetPlayer("nobody")
 	if player != nil {
@@ -83,7 +88,7 @@ func TestGetNonExistentPlayer(t *testing.T) {
 }
 
 func TestGetUser(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	sendChan := makeSendChan()
 
 	user := room.AddUser(sendChan)
@@ -95,7 +100,7 @@ func TestGetUser(t *testing.T) {
 }
 
 func TestGetNonExistentUser(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 
 	user := room.GetUser(999)
 	if user != nil {
@@ -104,7 +109,7 @@ func TestGetNonExistentUser(t *testing.T) {
 }
 
 func TestAddAndRemoveUser(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	sendChan := makeSendChan()
 
 	user := room.AddUser(sendChan)
@@ -120,13 +125,13 @@ func TestAddAndRemoveUser(t *testing.T) {
 }
 
 func TestRemoveNonExistentUser(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 
 	room.RemoveUser(999)
 }
 
 func TestRemoveUserTwice(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	sendChan := makeSendChan()
 
 	user := room.AddUser(sendChan)
@@ -135,7 +140,7 @@ func TestRemoveUserTwice(t *testing.T) {
 }
 
 func TestConnectUserToPlayer(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	sendChan := makeSendChan()
 
 	player := room.AddPlayer("Alice")
@@ -160,7 +165,7 @@ func TestConnectUserToPlayer(t *testing.T) {
 }
 
 func TestConnectUserToNonExistentPlayer(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	sendChan := makeSendChan()
 
 	user := room.AddUser(sendChan)
@@ -171,7 +176,7 @@ func TestConnectUserToNonExistentPlayer(t *testing.T) {
 }
 
 func TestConnectUserToPlayerReplacesExistingBinding(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	sendChan1 := makeSendChan()
 	sendChan2 := makeSendChan()
 
@@ -200,7 +205,7 @@ func TestConnectUserToPlayerReplacesExistingBinding(t *testing.T) {
 }
 
 func TestDisconnectUser(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	sendChan := makeSendChan()
 
 	player := room.AddPlayer("Alice")
@@ -223,7 +228,7 @@ func TestDisconnectUser(t *testing.T) {
 }
 
 func TestPlayerReconnectBySameName(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	sendChan1 := makeSendChan()
 	sendChan2 := makeSendChan()
 
@@ -254,7 +259,7 @@ func TestPlayerReconnectBySameName(t *testing.T) {
 }
 
 func TestMultipleDisconnectReconnect(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 
 	room.AddPlayer("Alice")
 
@@ -275,7 +280,7 @@ func TestMultipleDisconnectReconnect(t *testing.T) {
 }
 
 func TestAllReady(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	sendChan1 := makeSendChan()
 	sendChan2 := makeSendChan()
 
@@ -303,7 +308,7 @@ func TestAllReady(t *testing.T) {
 }
 
 func TestAllReadySkipsDisconnectedPlayers(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	sendChan := makeSendChan()
 
 	room.AddPlayer("Alice")
@@ -319,7 +324,7 @@ func TestAllReadySkipsDisconnectedPlayers(t *testing.T) {
 }
 
 func TestBroadcast(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	sendChan1 := makeSendChan()
 	sendChan2 := makeSendChan()
 
@@ -344,13 +349,13 @@ func TestBroadcast(t *testing.T) {
 }
 
 func TestBroadcastToEmptyRoom(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 
 	room.Broadcast([]byte(`{"action":"test"}`))
 }
 
 func TestBroadcastWithFullChannel(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	sendChan := make(chan []byte, 1)
 
 	user := room.AddUser(sendChan)
@@ -363,7 +368,7 @@ func TestBroadcastWithFullChannel(t *testing.T) {
 }
 
 func TestBroadcastOthers(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	sendChan1 := makeSendChan()
 	sendChan2 := makeSendChan()
 
@@ -390,7 +395,7 @@ func TestBroadcastOthers(t *testing.T) {
 }
 
 func TestBroadcastOthersSkipsDisconnectedPlayer(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	sendChan := makeSendChan()
 
 	room.AddPlayer("Alice")
@@ -403,7 +408,7 @@ func TestBroadcastOthersSkipsDisconnectedPlayer(t *testing.T) {
 }
 
 func TestGetPlayers(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 
 	room.AddPlayer("Alice")
 	room.AddPlayer("Bob")
@@ -424,7 +429,7 @@ func TestGetPlayers(t *testing.T) {
 }
 
 func TestGetPlayersReturnsCopy(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	room.AddPlayer("Alice")
 
 	players := room.GetPlayers()
@@ -436,7 +441,7 @@ func TestGetPlayersReturnsCopy(t *testing.T) {
 }
 
 func TestPlayerSend(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	sendChan := makeSendChan()
 
 	player := room.AddPlayer("Alice")
@@ -463,9 +468,8 @@ func TestPlayerSendWithoutUser(t *testing.T) {
 
 func TestRoomManager(t *testing.T) {
 	rm := NewRoomManager()
-	mockGame := NewMockGame()
 
-	room1 := rm.CreateRoom(mockGame)
+	room1 := rm.CreateRoom("", nil)
 	if room1 == nil {
 		t.Fatal("Expected room to be created")
 	}
@@ -475,7 +479,7 @@ func TestRoomManager(t *testing.T) {
 		t.Error("Expected to retrieve the same room")
 	}
 
-	room2 := rm.CreateRoom(mockGame)
+	room2 := rm.CreateRoom("", nil)
 	if room2.ID == room1.ID {
 		t.Error("Expected different room IDs")
 	}
@@ -492,7 +496,8 @@ func TestRoomManagerGetNonExistentRoom(t *testing.T) {
 
 func TestHandleAction(t *testing.T) {
 	mock := NewMockGame()
-	room := NewRoom("test-room", mock)
+	room := NewRoom("test-room", "", nil)
+	room.SetGame(mock)
 
 	room.HandleAction("Alice", []byte(`{"action":"play"}`))
 	room.HandleAction("Bob", []byte(`{"action":"draw"}`))
@@ -511,14 +516,15 @@ func TestHandleAction(t *testing.T) {
 }
 
 func TestHandleActionWithNilGame(t *testing.T) {
-	room := NewRoom("test-room", nil)
+	room := NewRoom("test-room", "", nil)
 
 	room.HandleAction("Alice", []byte(`{"action":"play"}`))
 }
 
 func TestGameState(t *testing.T) {
 	mock := NewMockGame()
-	room := NewRoom("test-room", mock)
+	room := NewRoom("test-room", "", nil)
+	room.SetGame(mock)
 
 	state := room.GameState("Alice")
 	if state == nil {
@@ -536,7 +542,7 @@ func TestGameState(t *testing.T) {
 }
 
 func TestGameStateWithNilGame(t *testing.T) {
-	room := NewRoom("test-room", nil)
+	room := NewRoom("test-room", "", nil)
 
 	state := room.GameState("Alice")
 	if state != nil {
@@ -589,7 +595,7 @@ func TestUserReady(t *testing.T) {
 }
 
 func TestPlayerJSONSerialization(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	sendChan := makeSendChan()
 
 	room.AddPlayer("Alice")
@@ -640,7 +646,7 @@ func TestPlayerJSONSerialization(t *testing.T) {
 }
 
 func TestConcurrentAddPlayers(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	var wg sync.WaitGroup
 
 	for i := 0; i < 10; i++ {
@@ -661,7 +667,7 @@ func TestConcurrentAddPlayers(t *testing.T) {
 }
 
 func TestConcurrentBroadcast(t *testing.T) {
-	room := NewRoom("test-room", NewMockGame())
+	room := NewRoom("test-room", "", nil)
 	var users []*User
 
 	for i := 0; i < 10; i++ {

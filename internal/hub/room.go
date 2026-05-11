@@ -13,16 +13,21 @@ type Room struct {
 	users   map[int]*User
 	game    game.Game
 
-	mu     sync.RWMutex
-	userID int
+	gameType   game.GameType
+	gameConfig map[string]interface{}
+
+	mu          sync.RWMutex
+	userID      int
+	playerOrder []string
 }
 
-func NewRoom(id string, g game.Game) *Room {
+func NewRoom(id string, gameType game.GameType, config map[string]interface{}) *Room {
 	return &Room{
-		ID:      id,
-		game:    g,
-		players: make(map[string]*Player),
-		users:   make(map[int]*User),
+		ID:         id,
+		gameType:   gameType,
+		gameConfig: config,
+		players:    make(map[string]*Player),
+		users:      make(map[int]*User),
 	}
 }
 
@@ -45,6 +50,7 @@ func (r *Room) AddPlayer(name string) *Player {
 	player := NewPlayer(name)
 	player.Room = r
 	r.players[name] = player
+	r.playerOrder = append(r.playerOrder, name)
 	return player
 }
 
@@ -95,6 +101,19 @@ func (r *Room) RemoveUser(userID int) {
 	delete(r.users, userID)
 }
 
+func (r *Room) RemovePlayer(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	delete(r.players, name)
+	for i, n := range r.playerOrder {
+		if n == name {
+			r.playerOrder = append(r.playerOrder[:i], r.playerOrder[i+1:]...)
+			break
+		}
+	}
+}
+
 func (r *Room) AllReady() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -108,36 +127,57 @@ func (r *Room) AllReady() bool {
 }
 
 func (r *Room) GameType() game.GameType {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if r.game == nil {
-		return ""
-	}
-
-	return r.game.Type()
+	return r.gameType
 }
 
-func (r *Room) HandleAction(playerName string, payload []byte) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+func (r *Room) StartGame(playerNames []string) {
+	r.mu.Lock()
+	if r.game != nil {
+		r.mu.Unlock()
+		return
+	}
+	r.game = game.NewGame(r.gameType, r.gameConfig)
+	r.mu.Unlock()
 
 	if r.game == nil {
 		return
 	}
+	messages := r.game.Start(playerNames)
+	r.processMessages(messages)
+}
 
-	r.game.HandleAction(playerName, payload)
+func (r *Room) HandleAction(playerName string, payload []byte) {
+	if r.game == nil {
+		return
+	}
+	messages := r.game.HandleAction(playerName, payload)
+	r.processMessages(messages)
+}
+
+func (r *Room) processMessages(messages []game.GameMessage) {
+	for _, m := range messages {
+		if m.Target == "" {
+			r.Broadcast([]byte(m.Data))
+		} else {
+			r.sendToPlayer(m.Target, []byte(m.Data))
+		}
+	}
 }
 
 func (r *Room) GameState(playerName string) any {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	if r.game == nil {
 		return nil
 	}
-
 	return r.game.State(playerName)
+}
+
+func (r *Room) GetPlayerNames() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	names := make([]string, len(r.playerOrder))
+	copy(names, r.playerOrder)
+	return names
 }
 
 func (r *Room) Broadcast(msg []byte) {
@@ -146,6 +186,18 @@ func (r *Room) Broadcast(msg []byte) {
 
 	for _, u := range r.users {
 		u.TrySend(msg)
+	}
+}
+
+func (r *Room) sendToPlayer(playerName string, msg []byte) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, p := range r.players {
+		if p.Name == playerName && p.User != nil {
+			p.User.TrySend(msg)
+			return
+		}
 	}
 }
 
@@ -158,6 +210,33 @@ func (r *Room) BroadcastOthers(excludePlayerName string, msg []byte) {
 			p.User.TrySend(msg)
 		}
 	}
+}
+
+func (r *Room) ContainsPlayer(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	_, ok := r.players[name]
+	return ok
+}
+
+func (r *Room) PlayerCount() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return len(r.players)
+}
+
+func (r *Room) GameStarted() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.game != nil
+}
+
+func (r *Room) SetGame(g game.Game) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.game = g
 }
 
 func (r *Room) GetPlayers() []*Player {

@@ -26,7 +26,7 @@ func (rm *RoomManager) GetRoom(roomID string) *Room {
 
 const IDLength = 6
 
-func (rm *RoomManager) CreateRoom(g game.Game) *Room {
+func (rm *RoomManager) CreateRoom(gameType game.GameType, config map[string]interface{}) *Room {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 	
@@ -55,7 +55,7 @@ func (rm *RoomManager) CreateRoom(g game.Game) *Room {
 		}
 	}
 
-	room := NewRoom(ID, g)
+	room := NewRoom(ID, gameType, config)
 	rm.rooms[ID] = room
 	return room
 }

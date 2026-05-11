@@ -802,6 +802,151 @@ func TestIntegrationJoinAndReadyMultiple(t *testing.T) {
 	}
 }
 
+func TestIntegrationUnoCreateWithConfig(t *testing.T) {
+	rm := hub.NewRoomManager()
+	mux := makeMux(rm)
+	ws, _ := dialServer(t, mux)
+
+	sendMsg(t, ws, map[string]interface{}{
+		"action": "create",
+		"name":   "Alice",
+		"game":   "uno",
+		"config": map[string]interface{}{
+			"cardsPerPlayer": float64(5),
+			"playAfterDraw":  false,
+		},
+	})
+	recvMsg(t, ws) // joined
+	recvMsg(t, ws) // navigate
+	recvMsg(t, ws) // players
+}
+
+func TestIntegrationUnoCreateWithInvalidConfig(t *testing.T) {
+	rm := hub.NewRoomManager()
+	mux := makeMux(rm)
+	ws, _ := dialServer(t, mux)
+
+	sendMsg(t, ws, map[string]interface{}{
+		"action": "create",
+		"name":   "Alice",
+		"game":   "uno",
+		"config": "not_a_map",
+	})
+	recvMsg(t, ws) // joined (config is silently ignored on bad type)
+	recvMsg(t, ws) // navigate
+	recvMsg(t, ws) // players
+}
+
+func TestIntegrationUnoPlayCard(t *testing.T) {
+	rm := hub.NewRoomManager()
+	mux := makeMux(rm)
+	ws1, _ := dialServer(t, mux)
+
+	sendMsg(t, ws1, map[string]interface{}{
+		"action": "create",
+		"name":   "Alice",
+		"game":   "uno",
+	})
+	joined := recvMsg(t, ws1)
+	roomID := joined["roomID"].(string)
+	recvMsg(t, ws1) // navigate
+	recvMsg(t, ws1) // players
+
+	ws2, _ := dialServer(t, mux)
+	sendMsg(t, ws2, map[string]interface{}{
+		"action": "join",
+		"name":   "Bob",
+		"roomID": roomID,
+	})
+	recvMsg(t, ws2) // joined
+	recvMsg(t, ws2) // navigate
+	recvMsg(t, ws2) // players
+	recvMsg(t, ws1) // players
+
+	// Both ready
+	sendMsg(t, ws1, map[string]interface{}{"action": "ready"})
+	recvMsg(t, ws1) // ready
+	recvMsg(t, ws2) // players
+	recvMsg(t, ws1) // players
+
+	sendMsg(t, ws2, map[string]interface{}{"action": "ready"})
+	recvMsg(t, ws2) // ready
+	recvMsg(t, ws1) // players
+	recvMsg(t, ws2) // players
+	recvMsg(t, ws1) // start
+	recvMsg(t, ws2) // start
+	recvMsg(t, ws1) // navigate
+	recvMsg(t, ws2) // navigate
+
+	// After start: game broadcasts game_state (public) + hand (private) per player
+	gameState := recvMsg(t, ws1)
+	if gameState["action"] != "game_state" {
+		t.Errorf("Expected game_state, got %v", gameState["action"])
+	}
+
+	hand1 := recvMsg(t, ws1)
+	if _, ok := hand1["hand"]; !ok {
+		t.Errorf("Expected private hand for Alice, got %v", hand1)
+	}
+
+	gameState2 := recvMsg(t, ws2)
+	if gameState2["action"] != "game_state" {
+		t.Errorf("Expected game_state for Bob, got %v", gameState2["action"])
+	}
+
+	hand2 := recvMsg(t, ws2)
+	if _, ok := hand2["hand"]; !ok {
+		t.Errorf("Expected private hand for Bob, got %v", hand2)
+	}
+
+	// Send a game action
+	sendMsg(t, ws1, map[string]interface{}{
+		"action": "game",
+		"payload": map[string]interface{}{
+			"action": "draw_card",
+		},
+	})
+	drawResp := recvMsg(t, ws1)
+	if drawResp["action"] != "draw" {
+		t.Errorf("Expected draw action, got %v", drawResp["action"])
+	}
+}
+
+func TestIntegrationUnoGameActionNotBound(t *testing.T) {
+	mux := makeMux(hub.NewRoomManager())
+	ws, _ := dialServer(t, mux)
+
+	sendMsg(t, ws, map[string]interface{}{
+		"action": "game",
+		"payload": map[string]interface{}{
+			"action": "draw_card",
+		},
+	})
+	resp := recvMsg(t, ws)
+	assertError(t, resp, "not_bound")
+}
+
+func TestIntegrationUnoGameActionMissingPayload(t *testing.T) {
+	rm := hub.NewRoomManager()
+	mux := makeMux(rm)
+	ws, _ := dialServer(t, mux)
+
+	sendMsg(t, ws, map[string]interface{}{
+		"action": "create",
+		"name":   "Alice",
+		"game":   "uno",
+	})
+	recvMsg(t, ws) // joined
+	recvMsg(t, ws) // navigate
+	recvMsg(t, ws) // players
+
+	sendMsg(t, ws, map[string]interface{}{
+		"action": "game",
+	})
+	resp := recvMsg(t, ws)
+	assertError(t, resp, "missing_payload")
+}
+
 func TestIntegrationCreateAfterJoin(t *testing.T) {
 	rm := hub.NewRoomManager()
 	mux := makeMux(rm)

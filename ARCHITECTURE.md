@@ -52,18 +52,18 @@ PocketDeck is a **WebSocket-based multiplayer card game server**. Clients connec
 
 ```
 Client ──{"action":"create",...}──► WSC.readPump()
-                                         │
-                                   handleCreate()
-                                         │
-                                   RoomManager.CreateRoom()
-                                   Room.AddPlayer()
-                                   Room.AddUser()
-                                   Room.ConnectUserToPlayer()
-                                         │
-                                   WSC.send ──{"action":"joined",...}──► Client
-                                   Room.BroadcastPlayerUpdate()
-                                         │
-                                   ──► All Users in Room
+                                          │
+                                    handleCreate()
+                                          │
+                                    RoomManager.CreateRoom(type, config)
+                                    Room.AddPlayer()
+                                    Room.AddUser()
+                                    Room.ConnectUserToPlayer()
+                                          │
+                                    WSC.send ──{"action":"joined",...}──► Client
+                                    Room.BroadcastPlayerUpdate()
+                                          │
+                                    ──► All Users in Room
 ```
 
 ---
@@ -114,12 +114,14 @@ A **game room** — the central coordination point.
 
 ```go
 type Room struct {
-    ID      string              // 6-char alphanumeric, crypto-random
-    players map[string]*Player  // Persistent players (keyed by name)
-    users   map[int]*User       // Active connections (keyed by user ID)
-    game    game.Game           // Pluggable game engine
-    mu      sync.RWMutex        // Thread safety
-    userID  int                 // Auto-incrementing user ID counter
+	ID      string              // 6-char alphanumeric, crypto-random
+	players map[string]*Player  // Persistent players (keyed by name)
+	users   map[int]*User       // Active connections (keyed by user ID)
+	game    game.Game           // Pluggable game engine (nil until start)
+	gameType    game.GameType   // Game type, set at creation
+	gameConfig  map[string]interface{} // Game config, set at creation
+	mu      sync.RWMutex        // Thread safety
+	userID  int                 // Auto-incrementing user ID counter
 }
 ```
 
@@ -127,6 +129,8 @@ type Room struct {
 - Add/remove players and users
 - Connect users to players (binds session to entity)
 - Broadcast messages to all users (or all except one)
+- Store game type + config at creation (game is NOT instantiated yet)
+- Create game engine on first `StartGame()` call (when all players ready)
 - Forward game actions to the game engine
 - Track ready state → emit `start` when all ready
 
@@ -136,14 +140,16 @@ Manages all rooms globally.
 
 ```go
 type RoomManager struct {
-    mu    sync.Mutex
-    rooms map[string]*Room
+	mu    sync.Mutex
+	rooms map[string]*Room
 }
 ```
 
 **Key responsibilities:**
-- `CreateRoom(g game.Game) *Room` — generates unique 6-char ID, stores room
+- `CreateRoom(gameType, config) *Room` — generates unique 6-char ID, stores room with game type + config
 - `GetRoom(roomID string) *Room` — lookup by ID
+
+The game engine is NOT created here. It is created lazily when `Room.StartGame()` is called, so that player list and config are finalized before the game deals cards.
 
 ### 3.5 Game Interface (internal/game/game.go)
 
@@ -372,6 +378,8 @@ currentPlayer plays/draws
 
 ### Room Management
 
+The game engine is NOT created when the room is created. Only the game type and config are stored. The game is instantiated when all players are ready and `Room.StartGame()` is called, ensuring a finalized player list before cards are dealt.
+
 #### Create Room
 ```json
 // Request
@@ -380,6 +388,19 @@ currentPlayer plays/draws
 {"action":"joined", "roomID":"abc123"}
 // Broadcast
 {"action":"players", "players":[{"name":"Alice","points":0,"active":true,"ready":false}]}
+```
+
+#### Message Flow (Create → Start)
+
+```
+Client creates room ──► handleCreate() stores game type + config, no game instance
+Client joins                  ──► handleJoin() adds player
+Client readies up             ──► AllReady() → Room.StartGame()
+                                          │
+                                    game.NewGame(type, config)   ◄── Game created here
+                                    game.Start(playerNames)      ◄── Deals cards, picks top card
+                                          │
+                                    Broadcast: game_state + hand per player
 ```
 
 #### Join Room

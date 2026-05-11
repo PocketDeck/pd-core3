@@ -72,6 +72,9 @@ func (wsc *WSC) markDone() {
 func (wsc *WSC) leaveRoom() {
 	if wsc.room != nil {
 		wsc.room.RemoveUser(wsc.userID)
+		if !wsc.room.GameStarted() {
+			wsc.room.RemovePlayer(wsc.playerName)
+		}
 		wsc.room.BroadcastPlayerUpdate()
 	}
 }
@@ -159,13 +162,13 @@ func (wsc *WSC) handleCreate(msg map[string]interface{}) {
 	}
 
 	gameType := game.GameType(gameTypeStr)
-	g := game.NewGame(gameType)
-	if g == nil {
+	if !game.IsValidGameType(gameType) {
 		wsc.sendError("invalid_game")
 		return
 	}
 
-	room := wsc.rm.CreateRoom(g)
+	config, _ := msg["config"].(map[string]interface{})
+	room := wsc.rm.CreateRoom(gameType, config)
 	msg["roomID"] = room.ID
 	wsc.handleJoin(msg)
 }
@@ -286,6 +289,9 @@ func (wsc *WSC) handleReady(ready bool) {
 			"page":   gamePage,
 		})
 		wsc.room.Broadcast(navigateMsg)
+
+		playerNames := wsc.room.GetPlayerNames()
+		wsc.room.StartGame(playerNames)
 	}
 }
 
