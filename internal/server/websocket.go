@@ -270,13 +270,13 @@ func (wsc *WSC) handleReady(ready bool) {
 
 	user.SetReady(ready)
 
-	action := "ready"
+	respAction := "ready"
 	if !ready {
-		action = "unready"
+		respAction = "unready"
 	}
 
 	wsc.sendResponse(map[string]interface{}{
-		"action": action,
+		"action": respAction,
 	})
 
 	wsc.room.BroadcastPlayerUpdate()
@@ -290,8 +290,8 @@ func (wsc *WSC) handleReady(ready bool) {
 		})
 		wsc.room.Broadcast(navigateMsg)
 
-		playerNames := wsc.room.GetPlayerNames()
-		wsc.room.StartGame(playerNames)
+		playerIDs := wsc.room.GetPlayerIDs()
+		wsc.room.StartGame(playerIDs)
 	}
 }
 
@@ -311,6 +311,7 @@ func (wsc *WSC) handleStatus() {
 	playerList := make([]map[string]interface{}, 0, len(players))
 	for _, p := range players {
 		playerList = append(playerList, map[string]interface{}{
+			"id":     p.ID,
 			"name":   p.Name,
 			"points": p.Points,
 			"active": p.IsActive,
@@ -318,7 +319,12 @@ func (wsc *WSC) handleStatus() {
 		})
 	}
 
-	gameState := wsc.room.GameState(wsc.playerName)
+	player := wsc.room.GetPlayer(wsc.playerName)
+	playerID := -1
+	if player != nil {
+		playerID = player.ID
+	}
+	gameState := wsc.room.GameState(playerID)
 
 	resp := map[string]interface{}{
 		"action":  "status",
@@ -348,7 +354,12 @@ func (wsc *WSC) handleGameAction(msg map[string]interface{}) {
 		return
 	}
 
-	wsc.room.HandleAction(wsc.playerName, payloadBytes)
+	player := wsc.room.GetPlayer(wsc.playerName)
+	if player == nil {
+		wsc.sendError("not_bound")
+		return
+	}
+	wsc.room.HandleAction(player.ID, payloadBytes)
 }
 
 func (wsc *WSC) sendError(err string) {

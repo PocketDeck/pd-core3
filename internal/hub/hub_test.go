@@ -18,14 +18,14 @@ func NewMockGame() *MockGame {
 	return &MockGame{}
 }
 
-func (m *MockGame) HandleAction(playerName string, payload []byte) []game.GameMessage {
+func (m *MockGame) HandleAction(playerID int, payload []byte) []game.GameMessage {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.actions = append(m.actions, playerName)
+	m.actions = append(m.actions, fmt.Sprintf("%d", playerID))
 	return nil
 }
 
-func (m *MockGame) Start(players []string) []game.GameMessage {
+func (m *MockGame) Start(playerIDs []int) []game.GameMessage {
 	return nil
 }
 
@@ -33,10 +33,10 @@ func (m *MockGame) Type() game.GameType {
 	return game.GameType("mock")
 }
 
-func (m *MockGame) State(playerName string) any {
+func (m *MockGame) State(playerID int) any {
 	return map[string]interface{}{
 		"type":   "mock",
-		"player": playerName,
+		"player": playerID,
 	}
 }
 
@@ -381,7 +381,7 @@ func TestBroadcastOthers(t *testing.T) {
 	room.ConnectUserToPlayer(user2, "Bob")
 
 	testMsg := []byte(`{"action":"test"}`)
-	room.BroadcastOthers("Alice", testMsg)
+	room.BroadcastOthers(0, testMsg)
 
 	select {
 	case msg := <-sendChan1:
@@ -398,13 +398,13 @@ func TestBroadcastOthersSkipsDisconnectedPlayer(t *testing.T) {
 	room := NewRoom("test-room", "", nil)
 	sendChan := makeSendChan()
 
-	room.AddPlayer("Alice")
+	alice := room.AddPlayer("Alice")
 	room.AddPlayer("Bob")
 
 	user := room.AddUser(sendChan)
 	room.ConnectUserToPlayer(user, "Alice")
 
-	room.BroadcastOthers("Alice", []byte(`{"action":"test"}`))
+	room.BroadcastOthers(alice.ID, []byte(`{"action":"test"}`))
 }
 
 func TestGetPlayers(t *testing.T) {
@@ -459,7 +459,7 @@ func TestPlayerSend(t *testing.T) {
 }
 
 func TestPlayerSendWithoutUser(t *testing.T) {
-	player := NewPlayer("Alice")
+	player := NewPlayer(0, "Alice")
 	testMsg := []byte(`{"action":"test"}`)
 	if player.Send(testMsg) {
 		t.Error("Expected Send to fail when no user is connected")
@@ -499,26 +499,29 @@ func TestHandleAction(t *testing.T) {
 	room := NewRoom("test-room", "", nil)
 	room.SetGame(mock)
 
-	room.HandleAction("Alice", []byte(`{"action":"play"}`))
-	room.HandleAction("Bob", []byte(`{"action":"draw"}`))
+	alice := room.AddPlayer("Alice")
+	bob := room.AddPlayer("Bob")
+
+	room.HandleAction(alice.ID, []byte(`{"action":"play"}`))
+	room.HandleAction(bob.ID, []byte(`{"action":"draw"}`))
 
 	actions := mock.Actions()
 	if len(actions) != 2 {
 		t.Fatalf("Expected 2 actions, got %d", len(actions))
 	}
 
-	if actions[0] != "Alice" {
-		t.Errorf("Expected first action by Alice, got %s", actions[0])
+	if actions[0] != "0" {
+		t.Errorf("Expected first action by player 0, got %s", actions[0])
 	}
-	if actions[1] != "Bob" {
-		t.Errorf("Expected second action by Bob, got %s", actions[1])
+	if actions[1] != "1" {
+		t.Errorf("Expected second action by player 1, got %s", actions[1])
 	}
 }
 
 func TestHandleActionWithNilGame(t *testing.T) {
 	room := NewRoom("test-room", "", nil)
 
-	room.HandleAction("Alice", []byte(`{"action":"play"}`))
+	room.HandleAction(0, []byte(`{"action":"play"}`))
 }
 
 func TestGameState(t *testing.T) {
@@ -526,7 +529,9 @@ func TestGameState(t *testing.T) {
 	room := NewRoom("test-room", "", nil)
 	room.SetGame(mock)
 
-	state := room.GameState("Alice")
+	alice := room.AddPlayer("Alice")
+
+	state := room.GameState(alice.ID)
 	if state == nil {
 		t.Fatal("Expected non-nil game state")
 	}
@@ -536,15 +541,15 @@ func TestGameState(t *testing.T) {
 		t.Fatal("Expected map state")
 	}
 
-	if s["player"] != "Alice" {
-		t.Errorf("Expected player Alice in state, got %v", s["player"])
+	if s["player"] != alice.ID {
+		t.Errorf("Expected player %d in state, got %v", alice.ID, s["player"])
 	}
 }
 
 func TestGameStateWithNilGame(t *testing.T) {
 	room := NewRoom("test-room", "", nil)
 
-	state := room.GameState("Alice")
+	state := room.GameState(0)
 	if state != nil {
 		t.Error("Expected nil state for nil game")
 	}
@@ -607,6 +612,7 @@ func TestPlayerJSONSerialization(t *testing.T) {
 	playerList := make([]map[string]interface{}, 0, len(players))
 	for _, p := range players {
 		playerList = append(playerList, map[string]interface{}{
+			"id":     p.ID,
 			"name":   p.Name,
 			"points": p.Points,
 			"active": p.IsActive,
@@ -626,6 +632,10 @@ func TestPlayerJSONSerialization(t *testing.T) {
 
 	if len(unmarshaled) != 1 {
 		t.Fatalf("Expected 1 player in JSON, got %d", len(unmarshaled))
+	}
+
+	if unmarshaled[0]["id"] != float64(0) {
+		t.Error("Expected player id to be 0")
 	}
 
 	if unmarshaled[0]["name"] != "Alice" {

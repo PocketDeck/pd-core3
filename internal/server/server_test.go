@@ -472,6 +472,9 @@ func TestIntegrationStatus(t *testing.T) {
 	if player["name"] != "Alice" {
 		t.Errorf("Expected player name Alice, got %v", player["name"])
 	}
+	if player["id"] != float64(0) {
+		t.Errorf("Expected player id 0, got %v", player["id"])
+	}
 }
 
 func TestIntegrationStatusNotBound(t *testing.T) {
@@ -878,28 +881,21 @@ func TestIntegrationUnoPlayCard(t *testing.T) {
 	recvMsg(t, ws1) // navigate
 	recvMsg(t, ws2) // navigate
 
-	// After start: game broadcasts game_state (public) + hand (private) per player
-	gameState := recvMsg(t, ws1)
-	if gameState["action"] != "game_state" {
-		t.Errorf("Expected game_state, got %v", gameState["action"])
+	// After start, state is fetched via status
+	sendMsg(t, ws1, map[string]interface{}{"action": "status"})
+	statusResp := recvMsg(t, ws1)
+	for statusResp["action"] != "status" {
+		statusResp = recvMsg(t, ws1)
+	}
+	if statusResp["action"] != "status" {
+		t.Errorf("Expected status, got %v", statusResp["action"])
+	}
+	gameState := statusResp["game"].(map[string]interface{})
+	if _, ok := gameState["hand"]; !ok {
+		t.Errorf("Expected private hand for Alice in game_state, got %v", gameState)
 	}
 
-	hand1 := recvMsg(t, ws1)
-	if _, ok := hand1["hand"]; !ok {
-		t.Errorf("Expected private hand for Alice, got %v", hand1)
-	}
-
-	gameState2 := recvMsg(t, ws2)
-	if gameState2["action"] != "game_state" {
-		t.Errorf("Expected game_state for Bob, got %v", gameState2["action"])
-	}
-
-	hand2 := recvMsg(t, ws2)
-	if _, ok := hand2["hand"]; !ok {
-		t.Errorf("Expected private hand for Bob, got %v", hand2)
-	}
-
-	// Send a game action
+	// Send a game action — Alice draws a card
 	sendMsg(t, ws1, map[string]interface{}{
 		"action": "game",
 		"payload": map[string]interface{}{

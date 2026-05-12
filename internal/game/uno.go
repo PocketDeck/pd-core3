@@ -60,8 +60,8 @@ func defaultConfig() UnoConfig {
 
 type UnoGame struct {
 	state              GameState
-	players            []string
-	hands              map[string][]Card
+	playerIDs          []int
+	hands              map[int][]Card
 	deck               []Card
 	discard            []Card
 	currentTurn        int
@@ -69,7 +69,7 @@ type UnoGame struct {
 	config             UnoConfig
 	drawCounter        int
 	playAfterDrawIndex int
-	winner             string
+	winner             int
 }
 
 func NewUnoGame(config map[string]interface{}) *UnoGame {
@@ -94,6 +94,7 @@ func NewUnoGame(config map[string]interface{}) *UnoGame {
 		config:             cfg,
 		direction:          1,
 		playAfterDrawIndex: -1,
+		winner:             -1,
 	}
 }
 
@@ -101,18 +102,18 @@ func (u *UnoGame) Type() GameType {
 	return GameUno
 }
 
-func (u *UnoGame) Start(players []string) []GameMessage {
-	u.players = players
-	u.hands = make(map[string][]Card, len(players))
+func (u *UnoGame) Start(playerIDs []int) []GameMessage {
+	u.playerIDs = playerIDs
+	u.hands = make(map[int][]Card, len(playerIDs))
 	u.deck = buildDeck()
 	shuffle(u.deck)
 
-	for _, name := range players {
+	for _, pid := range playerIDs {
 		hand := make([]Card, u.config.CardsPerPlayer)
 		for i := 0; i < u.config.CardsPerPlayer; i++ {
 			hand[i] = *u.drawFromDeck()
 		}
-		u.hands[name] = hand
+		u.hands[pid] = hand
 	}
 
 	for {
@@ -128,51 +129,55 @@ func (u *UnoGame) Start(players []string) []GameMessage {
 	u.direction = 1
 	u.state = StatePlaying
 
-	return u.broadcastState()
+	return nil
 }
 
-func (u *UnoGame) HandleAction(playerName string, payload []byte) []GameMessage {
+func (u *UnoGame) currentPlayerID() int {
+	return u.playerIDs[u.currentTurn]
+}
+
+func (u *UnoGame) HandleAction(playerID int, payload []byte) []GameMessage {
 	if u.state == StateFinished {
 		return nil
 	}
 
 	var action map[string]interface{}
 	if err := json.Unmarshal(payload, &action); err != nil {
-		return u.errTo(playerName, "invalid_action")
+		return u.errTo(playerID, "invalid_action")
 	}
 
 	actionType, _ := action["action"].(string)
 
 	switch actionType {
 	case "play_card":
-		return u.handlePlay(playerName, action)
+		return u.handlePlay(playerID, action)
 	case "draw_card":
-		return u.handleDraw(playerName)
+		return u.handleDraw(playerID)
 	case "call_uno":
-		return u.handleCallUno(playerName)
+		return u.handleCallUno(playerID)
 	case "declare_color":
-		return u.handleDeclareColor(playerName, action)
+		return u.handleDeclareColor(playerID, action)
 	default:
-		return u.errTo(playerName, "unknown_game_action")
+		return u.errTo(playerID, "unknown_game_action")
 	}
 }
 
-func (u *UnoGame) handlePlay(playerName string, action map[string]interface{}) []GameMessage {
-	if playerName != u.players[u.currentTurn] {
-		return u.errTo(playerName, "not_your_turn")
+func (u *UnoGame) handlePlay(playerID int, action map[string]interface{}) []GameMessage {
+	if playerID != u.currentPlayerID() {
+		return u.errTo(playerID, "not_your_turn")
 	}
 
 	if u.playAfterDrawIndex >= 0 {
 		idx, ok := action["hand_index"].(float64)
 		if !ok || int(idx) != u.playAfterDrawIndex {
-			return u.errTo(playerName, "must_play_drawn_card")
+			return u.errTo(playerID, "must_play_drawn_card")
 		}
 	}
 
 	var card Card
 	cardRaw, ok := action["card"].(map[string]interface{})
 	if !ok {
-		return u.errTo(playerName, "missing_card")
+		return u.errTo(playerID, "missing_card")
 	}
 	card.Color = CardColor(cardRaw["color"].(string))
 	card.Kind = CardKind(cardRaw["kind"].(string))
@@ -180,7 +185,7 @@ func (u *UnoGame) handlePlay(playerName string, action map[string]interface{}) [
 		card.Value = int(v)
 	}
 
-	hand := u.hands[playerName]
+	hand := u.hands[playerID]
 	idx := -1
 	for i, c := range hand {
 		if cardsEqual(c, card) {
@@ -189,17 +194,17 @@ func (u *UnoGame) handlePlay(playerName string, action map[string]interface{}) [
 		}
 	}
 	if idx < 0 {
-		return u.errTo(playerName, "card_not_in_hand")
+		return u.errTo(playerID, "card_not_in_hand")
 	}
 
 	if !u.canPlay(card) {
-		return u.errTo(playerName, "cannot_play_card")
+		return u.errTo(playerID, "cannot_play_card")
 	}
 
 	if card.Kind == KindWild || card.Kind == KindWildDraw4 {
 		wildColor, hasColor := action["wildColor"].(string)
 		if !hasColor || wildColor == "" || wildColor == "wild" {
-			return u.errTo(playerName, "must_declare_color")
+			return u.errTo(playerID, "must_declare_color")
 		}
 		card.Color = CardColor(wildColor)
 	}
@@ -209,49 +214,49 @@ func (u *UnoGame) handlePlay(playerName string, action map[string]interface{}) [
 	}
 
 	u.discard = append(u.discard, card)
-	u.hands[playerName] = append(hand[:idx], hand[idx+1:]...)
+	u.hands[playerID] = append(hand[:idx], hand[idx+1:]...)
 	u.playAfterDrawIndex = -1
 
 	var msgs []GameMessage
 	cardJSON, _ := json.Marshal(card)
 	playMsg := map[string]interface{}{
 		"action":     "card_played",
-		"player":     playerName,
+		"player":     playerID,
 		"card":       json.RawMessage(cardJSON),
 		"hand_index": idx,
 	}
-	msgs = append(msgs, GameMessage{Target: "", Data: marshalMsg(playMsg)})
+	msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(playMsg)})
 
 	if card.Kind == KindSkip {
 		u.advanceTurn()
-		skipPlayer := u.players[u.currentTurn]
+		skipID := u.currentPlayerID()
 		u.advanceTurn()
-		msgs = append(msgs, GameMessage{Target: "", Data: marshalMsg(map[string]interface{}{
+		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
 			"action": "player_skipped",
-			"player": skipPlayer,
+			"player": skipID,
 		})})
-		msgs = append(msgs, GameMessage{Target: "", Data: marshalMsg(map[string]interface{}{
+		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
 			"action": "turn",
-			"player": u.players[u.currentTurn],
+			"player": u.currentPlayerID(),
 		})})
 		return msgs
 	}
 
 	if card.Kind == KindReverse {
 		u.direction *= -1
-		if len(u.players) == 2 {
-			skipPlayer := u.players[u.nextPlayerIndex()]
-			msgs = append(msgs, GameMessage{Target: "", Data: marshalMsg(map[string]interface{}{
+		if len(u.playerIDs) == 2 {
+			skipID := u.playerIDs[u.nextPlayerIndex()]
+			msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
 				"action": "player_skipped",
-				"player": skipPlayer,
+				"player": skipID,
 			})})
-			msgs = append(msgs, GameMessage{Target: "", Data: marshalMsg(map[string]interface{}{
+			msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
 				"action": "turn",
-				"player": u.players[u.currentTurn],
+				"player": u.currentPlayerID(),
 			})})
 			return msgs
 		}
-		msgs = append(msgs, GameMessage{Target: "", Data: marshalMsg(map[string]interface{}{
+		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
 			"action":    "direction_reversed",
 			"direction": u.direction,
 		})})
@@ -261,16 +266,16 @@ func (u *UnoGame) handlePlay(playerName string, action map[string]interface{}) [
 	if card.Kind == KindDraw2 {
 		u.drawCounter += 2
 		nextIdx := u.nextPlayerIndex()
-		nextPlayer := u.players[nextIdx]
-		msgs = append(msgs, GameMessage{Target: "", Data: marshalMsg(map[string]interface{}{
+		nextID := u.playerIDs[nextIdx]
+		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
 			"action": "draw_penalty",
-			"player": nextPlayer,
+			"player": nextID,
 			"count":  2,
 		})})
 		u.currentTurn = nextIdx
-		msgs = append(msgs, GameMessage{Target: "", Data: marshalMsg(map[string]interface{}{
+		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
 			"action": "turn",
-			"player": u.players[u.currentTurn],
+			"player": u.currentPlayerID(),
 		})})
 		return msgs
 	}
@@ -278,43 +283,43 @@ func (u *UnoGame) handlePlay(playerName string, action map[string]interface{}) [
 	if card.Kind == KindWildDraw4 {
 		u.drawCounter += 4
 		nextIdx := u.nextPlayerIndex()
-		nextPlayer := u.players[nextIdx]
-		msgs = append(msgs, GameMessage{Target: "", Data: marshalMsg(map[string]interface{}{
+		nextID := u.playerIDs[nextIdx]
+		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
 			"action": "draw_penalty",
-			"player": nextPlayer,
+			"player": nextID,
 			"count":  4,
 		})})
 		u.currentTurn = nextIdx
-		msgs = append(msgs, GameMessage{Target: "", Data: marshalMsg(map[string]interface{}{
+		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
 			"action": "turn",
-			"player": u.players[u.currentTurn],
+			"player": u.currentPlayerID(),
 		})})
 		return msgs
 	}
 
-	if len(u.hands[playerName]) == 0 {
+	if len(u.hands[playerID]) == 0 {
 		u.state = StateFinished
-		u.winner = playerName
-		msgs = append(msgs, GameMessage{Target: "", Data: marshalMsg(map[string]interface{}{
+		u.winner = playerID
+		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
 			"action": "game_over",
-			"winner": playerName,
+			"winner": playerID,
 		})})
 		return msgs
 	}
 
-	if len(u.hands[playerName]) == 1 {
-		msgs = append(msgs, GameMessage{Target: "", Data: marshalMsg(map[string]interface{}{
+	if len(u.hands[playerID]) == 1 {
+		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
 			"action": "uno",
-			"player": playerName,
+			"player": playerID,
 		})})
 	}
 
 	return append(msgs, u.nextTurnMsg()...)
 }
 
-func (u *UnoGame) handleDraw(playerName string) []GameMessage {
-	if playerName != u.players[u.currentTurn] {
-		return u.errTo(playerName, "not_your_turn")
+func (u *UnoGame) handleDraw(playerID int) []GameMessage {
+	if playerID != u.currentPlayerID() {
+		return u.errTo(playerID, "not_your_turn")
 	}
 
 	var msgs []GameMessage
@@ -328,17 +333,17 @@ func (u *UnoGame) handleDraw(playerName string) []GameMessage {
 			}
 			drawn = append(drawn, *c)
 		}
-		u.hands[playerName] = append(u.hands[playerName], drawn...)
+		u.hands[playerID] = append(u.hands[playerID], drawn...)
 		u.drawCounter = 0
 
 		drawnJSON, _ := json.Marshal(drawn)
-		msgs = append(msgs, GameMessage{Target: playerName, Data: marshalMsg(map[string]interface{}{
+		msgs = append(msgs, GameMessage{Target: playerID, Data: marshalMsg(map[string]interface{}{
 			"action": "draw",
 			"cards":  json.RawMessage(drawnJSON),
 		})})
-		msgs = append(msgs, GameMessage{Target: "", Data: marshalMsg(map[string]interface{}{
+		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
 			"action": "card_drawn",
-			"player": playerName,
+			"player": playerID,
 			"count":  len(drawn),
 		})})
 
@@ -347,26 +352,26 @@ func (u *UnoGame) handleDraw(playerName string) []GameMessage {
 
 	c := u.drawFromDeck()
 	if c == nil {
-		return u.errTo(playerName, "deck_empty")
+		return u.errTo(playerID, "deck_empty")
 	}
-	u.hands[playerName] = append(u.hands[playerName], *c)
+	u.hands[playerID] = append(u.hands[playerID], *c)
 
 	cardJSON, _ := json.Marshal([]Card{*c})
-	msgs = append(msgs, GameMessage{Target: playerName, Data: marshalMsg(map[string]interface{}{
+	msgs = append(msgs, GameMessage{Target: playerID, Data: marshalMsg(map[string]interface{}{
 		"action": "draw",
 		"cards":  json.RawMessage(cardJSON),
 	})})
-	msgs = append(msgs, GameMessage{Target: "", Data: marshalMsg(map[string]interface{}{
+	msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
 		"action": "card_drawn",
-		"player": playerName,
+		"player": playerID,
 		"count":  1,
 	})})
 
 	if u.config.PlayAfterDraw && u.canPlay(*c) {
-		u.playAfterDrawIndex = len(u.hands[playerName]) - 1
-		msgs = append(msgs, GameMessage{Target: playerName, Data: marshalMsg(map[string]interface{}{
-			"action":         "keep_or_play",
-			"card":           json.RawMessage(cardJSON),
+		u.playAfterDrawIndex = len(u.hands[playerID]) - 1
+		msgs = append(msgs, GameMessage{Target: playerID, Data: marshalMsg(map[string]interface{}{
+			"action":          "keep_or_play",
+			"card":            json.RawMessage(cardJSON),
 			"played_at_index": u.playAfterDrawIndex,
 		})})
 		return msgs
@@ -376,39 +381,39 @@ func (u *UnoGame) handleDraw(playerName string) []GameMessage {
 	return append(msgs, u.nextTurnMsg()...)
 }
 
-func (u *UnoGame) handleCallUno(playerName string) []GameMessage {
+func (u *UnoGame) handleCallUno(playerID int) []GameMessage {
 	msgs := u.msg(map[string]interface{}{
 		"action": "uno_called",
-		"player": playerName,
+		"player": playerID,
 	})
 	return msgs
 }
 
-func (u *UnoGame) handleDeclareColor(playerName string, action map[string]interface{}) []GameMessage {
+func (u *UnoGame) handleDeclareColor(playerID int, action map[string]interface{}) []GameMessage {
 	color, ok := action["color"].(string)
 	if !ok || color == "" || color == "wild" {
-		return u.errTo(playerName, "invalid_color")
+		return u.errTo(playerID, "invalid_color")
 	}
-	if playerName != u.players[u.currentTurn] {
-		return u.errTo(playerName, "not_your_turn")
+	if playerID != u.currentPlayerID() {
+		return u.errTo(playerID, "not_your_turn")
 	}
-	hand := u.hands[playerName]
+	hand := u.hands[playerID]
 	idx, ok := action["hand_index"].(float64)
 	if !ok || int(idx) >= len(hand) {
-		return u.errTo(playerName, "invalid_hand_index")
+		return u.errTo(playerID, "invalid_hand_index")
 	}
 	card := hand[int(idx)]
 	if card.Kind != KindWild && card.Kind != KindWildDraw4 {
-		return u.errTo(playerName, "not_a_wild_card")
+		return u.errTo(playerID, "not_a_wild_card")
 	}
-	u.hands[playerName][int(idx)] = Card{
+	u.hands[playerID][int(idx)] = Card{
 		Color: CardColor(color),
 		Kind:  card.Kind,
 		Value: 0,
 	}
 	msgs := u.msg(map[string]interface{}{
 		"action": "color_declared",
-		"player": playerName,
+		"player": playerID,
 		"color":  color,
 	})
 	return msgs
@@ -453,9 +458,9 @@ func (u *UnoGame) canPlay(card Card) bool {
 }
 
 func (u *UnoGame) nextPlayerIndex() int {
-	next := (u.currentTurn + u.direction) % len(u.players)
+	next := (u.currentTurn + u.direction) % len(u.playerIDs)
 	if next < 0 {
-		next += len(u.players)
+		next += len(u.playerIDs)
 	}
 	return next
 }
@@ -466,10 +471,9 @@ func (u *UnoGame) advanceTurn() {
 
 func (u *UnoGame) nextTurnMsg() []GameMessage {
 	u.advanceTurn()
-	player := u.players[u.currentTurn]
 	return u.msg(map[string]interface{}{
 		"action": "turn",
-		"player": player,
+		"player": u.currentPlayerID(),
 	})
 }
 
@@ -488,47 +492,14 @@ func (u *UnoGame) drawFromDeck() *Card {
 	return &c
 }
 
-func (u *UnoGame) broadcastState() []GameMessage {
-	turnPlayer := ""
-	if len(u.players) > 0 {
-		turnPlayer = u.players[u.currentTurn]
-	}
-
-	publicState := map[string]interface{}{
-		"action":    "game_state",
-		"state":     u.state,
-		"players":   u.broadcastPlayers(),
-		"turn":      turnPlayer,
-		"direction": u.direction,
-		"drawPile":  len(u.deck),
-	}
-	if len(u.discard) > 0 {
-		publicState["topCard"] = u.discard[len(u.discard)-1]
-	}
-	if u.winner != "" {
-		publicState["winner"] = u.winner
-	}
-
-	var msgs []GameMessage
-	msgs = append(msgs, GameMessage{Target: "", Data: marshalMsg(publicState)})
-
-	for _, name := range u.players {
-		privateState := map[string]interface{}{
-			"hand": u.hands[name],
-		}
-		msgs = append(msgs, GameMessage{Target: name, Data: marshalMsg(privateState)})
-	}
-	return msgs
-}
-
 func (u *UnoGame) broadcastPlayers() []map[string]interface{} {
 	var list []map[string]interface{}
-	for _, name := range u.players {
+	for _, pid := range u.playerIDs {
 		entry := map[string]interface{}{
-			"name":       name,
-			"card_count": len(u.hands[name]),
+			"id":         pid,
+			"card_count": len(u.hands[pid]),
 		}
-		if name == u.winner {
+		if pid == u.winner {
 			entry["winner"] = true
 		}
 		list = append(list, entry)
@@ -536,38 +507,36 @@ func (u *UnoGame) broadcastPlayers() []map[string]interface{} {
 	return list
 }
 
-func (u *UnoGame) State(playerName string) any {
+func (u *UnoGame) State(playerID int) any {
 	publicState := map[string]interface{}{
 		"state":     u.state,
 		"players":   u.broadcastPlayers(),
 		"direction": u.direction,
 		"drawPile":  len(u.deck),
 	}
-	if len(u.players) > 0 {
-		publicState["turn"] = u.players[u.currentTurn]
+	if len(u.playerIDs) > 0 {
+		publicState["turn"] = u.currentPlayerID()
 	}
 	if len(u.discard) > 0 {
 		publicState["topCard"] = u.discard[len(u.discard)-1]
 	}
-	if u.winner != "" {
+	if u.winner >= 0 {
 		publicState["winner"] = u.winner
 	}
 
-	if playerName != "" {
-		if hand, ok := u.hands[playerName]; ok {
-			publicState["hand"] = hand
-		}
+	if hand, ok := u.hands[playerID]; ok {
+		publicState["hand"] = hand
 	}
 	return publicState
 }
 
 func (u *UnoGame) msg(data map[string]interface{}) []GameMessage {
-	return []GameMessage{{Target: "", Data: marshalMsg(data)}}
+	return []GameMessage{{Target: -1, Data: marshalMsg(data)}}
 }
 
-func (u *UnoGame) errTo(playerName string, err string) []GameMessage {
+func (u *UnoGame) errTo(playerID int, err string) []GameMessage {
 	return []GameMessage{{
-		Target: playerName,
+		Target: playerID,
 		Data: marshalMsg(map[string]interface{}{
 			"action": "error",
 			"error":  err,

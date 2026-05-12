@@ -95,6 +95,7 @@ Represents a **persistent in-game entity** — survives disconnects.
 
 ```go
 type Player struct {
+    ID       int        // Assigned sequentially per-room (0, 1, 2, ...)
     Name     string     // Unique per room, chosen by client
     Points   int        // Running score
     IsActive bool       // Currently connected to a User
@@ -107,6 +108,7 @@ type Player struct {
 - Created on first join, persists across reconnections
 - Reconnecting: client sends same `name` → server finds inactive Player → connects new User
 - `Send()` — delegates to User's `TrySend()`, returns false if no User connected
+- Player ID is used by the game engine (instead of name) for all game events
 
 ### 3.3 Room (internal/hub/room.go)
 
@@ -121,6 +123,7 @@ type Room struct {
 	gameType    game.GameType   // Game type, set at creation
 	gameConfig  map[string]interface{} // Game config, set at creation
 	mu      sync.RWMutex        // Thread safety
+	nextPlayerID int            // Auto-incrementing player ID counter (0, 1, 2, ...)
 	userID  int                 // Auto-incrementing user ID counter
 }
 ```
@@ -154,14 +157,23 @@ The game engine is NOT created here. It is created lazily when `Room.StartGame()
 ### 3.5 Game Interface (internal/game/game.go)
 
 ```go
+type GameMessage struct {
+    Target int              // -1 = broadcast, otherwise player ID
+    Data   json.RawMessage
+}
+
 type Game interface {
-    HandleAction(playerName string, payload []byte)
-    State(playerName string) any
+    HandleAction(playerID int, payload []byte) []GameMessage
+    State(playerID int) any
+    Type() GameType
+    Start(playerIDs []int) []GameMessage
 }
 ```
 
-- `HandleAction` — process a player's game action (play card, draw, etc.)
+- `HandleAction` — process a player's game action (play card, draw, etc.), returns messages to route
 - `State` — return the full game state visible to a specific player
+- `Start` — initialize game with player IDs (not names); game engine has no knowledge of player names
+- `GameMessage.Target` = -1 means broadcast to all players; otherwise unicast to that player ID
 - Concrete implementations: `UnoGame`, `SkipBoGame`
 
 ### 3.6 WSC — WebSocket Client (internal/server/websocket.go)
@@ -174,6 +186,8 @@ type WSC struct {
     rm    *hub.RoomManager
     room  *hub.Room       // Room the user is in (nil if stray)
     state ClientState     // StateStray | StateBound
+    playerName string     // Player name from join/create
+    userID  int           // User session ID within room
     send  chan []byte     // Outgoing message buffer (shared with User)
 }
 ```
@@ -182,7 +196,7 @@ type WSC struct {
 - Two goroutines per connection: `writePump` + `readPump`
 - Routes incoming JSON actions to handler methods
 - On disconnect: removes User from Room, broadcasts player update
-- Creates a `hub.User` but does NOT hold a direct reference (TODO fix)
+- Contains `playerName` to look up the Player struct (which holds the numeric ID used by the game engine)
 
 ---
 
@@ -387,20 +401,20 @@ The game engine is NOT created when the room is created. Only the game type and 
 // Response
 {"action":"joined", "roomID":"abc123"}
 // Broadcast
-{"action":"players", "players":[{"name":"Alice","points":0,"active":true,"ready":false}]}
+{"action":"players", "players":[{"id":0, "name":"Alice", "points":0, "active":true, "ready":false}]}
 ```
 
 #### Message Flow (Create → Start)
 
 ```
 Client creates room ──► handleCreate() stores game type + config, no game instance
-Client joins                  ──► handleJoin() adds player
+Client joins                  ──► handleJoin() adds player (assigned ID 0)
 Client readies up             ──► AllReady() → Room.StartGame()
                                           │
                                     game.NewGame(type, config)   ◄── Game created here
-                                    game.Start(playerNames)      ◄── Deals cards, picks top card
+                                    game.Start(playerIDs)        ◄── Deals cards, picks top card (uses IDs, not names)
                                           │
-                                    Broadcast: game_state + hand per player
+                                    Client fetches state via status action
 ```
 
 #### Join Room
@@ -446,21 +460,19 @@ Client readies up             ──► AllReady() → Room.StartGame()
 #### Play a Card
 ```json
 // Request
-{"action":"game", "payload":{"action":"play", "from":3}}
-// Response to player
-{"action":"play", "handIndex":3}
-// Broadcast to others
-{"action":"play", "player":"Alice", "card":42, "handIndex":3}
+{"action":"game", "payload":{"action":"play_card", "card":{...}, "hand_index":3}}
+// Broadcast
+{"action":"card_played", "player":0, "card":{...}, "hand_index":3}
 ```
 
 #### Draw a Card
 ```json
 // Request
-{"action":"game", "payload":{"action":"draw"}}
+{"action":"game", "payload":{"action":"draw_card"}}
 // Response to player
-{"action":"draw", "cards":[42]}
+{"action":"draw", "cards":[{...}]}
 // Broadcast to others
-{"action":"draw", "player":"Alice", "count":1}
+{"action":"card_drawn", "player":0, "count":1}
 ```
 
 #### Choose Wild Color

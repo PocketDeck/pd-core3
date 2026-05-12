@@ -16,9 +16,10 @@ type Room struct {
 	gameType   game.GameType
 	gameConfig map[string]interface{}
 
-	mu          sync.RWMutex
-	userID      int
-	playerOrder []string
+	mu           sync.RWMutex
+	nextPlayerID int
+	userID       int
+	playerOrder  []string
 }
 
 func NewRoom(id string, gameType game.GameType, config map[string]interface{}) *Room {
@@ -37,6 +38,17 @@ func (r *Room) GetPlayer(name string) *Player {
 	return r.players[name]
 }
 
+func (r *Room) GetPlayerByID(id int) *Player {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, p := range r.players {
+		if p.ID == id {
+			return p
+		}
+	}
+	return nil
+}
+
 func (r *Room) GetUser(id int) *User {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -47,10 +59,11 @@ func (r *Room) AddPlayer(name string) *Player {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	player := NewPlayer(name)
+	player := NewPlayer(r.nextPlayerID, name)
 	player.Room = r
 	r.players[name] = player
 	r.playerOrder = append(r.playerOrder, name)
+	r.nextPlayerID++
 	return player
 }
 
@@ -130,7 +143,7 @@ func (r *Room) GameType() game.GameType {
 	return r.gameType
 }
 
-func (r *Room) StartGame(playerNames []string) {
+func (r *Room) StartGame(playerIDs []int) {
 	r.mu.Lock()
 	if r.game != nil {
 		r.mu.Unlock()
@@ -142,21 +155,21 @@ func (r *Room) StartGame(playerNames []string) {
 	if r.game == nil {
 		return
 	}
-	messages := r.game.Start(playerNames)
+	messages := r.game.Start(playerIDs)
 	r.processMessages(messages)
 }
 
-func (r *Room) HandleAction(playerName string, payload []byte) {
+func (r *Room) HandleAction(playerID int, payload []byte) {
 	if r.game == nil {
 		return
 	}
-	messages := r.game.HandleAction(playerName, payload)
+	messages := r.game.HandleAction(playerID, payload)
 	r.processMessages(messages)
 }
 
 func (r *Room) processMessages(messages []game.GameMessage) {
 	for _, m := range messages {
-		if m.Target == "" {
+		if m.Target == -1 {
 			r.Broadcast([]byte(m.Data))
 		} else {
 			r.sendToPlayer(m.Target, []byte(m.Data))
@@ -164,20 +177,24 @@ func (r *Room) processMessages(messages []game.GameMessage) {
 	}
 }
 
-func (r *Room) GameState(playerName string) any {
+func (r *Room) GameState(playerID int) any {
 	if r.game == nil {
 		return nil
 	}
-	return r.game.State(playerName)
+	return r.game.State(playerID)
 }
 
-func (r *Room) GetPlayerNames() []string {
+func (r *Room) GetPlayerIDs() []int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	names := make([]string, len(r.playerOrder))
-	copy(names, r.playerOrder)
-	return names
+	ids := make([]int, len(r.playerOrder))
+	for i, name := range r.playerOrder {
+		if p, ok := r.players[name]; ok {
+			ids[i] = p.ID
+		}
+	}
+	return ids
 }
 
 func (r *Room) Broadcast(msg []byte) {
@@ -189,24 +206,24 @@ func (r *Room) Broadcast(msg []byte) {
 	}
 }
 
-func (r *Room) sendToPlayer(playerName string, msg []byte) {
+func (r *Room) sendToPlayer(playerID int, msg []byte) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	for _, p := range r.players {
-		if p.Name == playerName && p.User != nil {
+		if p.ID == playerID && p.User != nil {
 			p.User.TrySend(msg)
 			return
 		}
 	}
 }
 
-func (r *Room) BroadcastOthers(excludePlayerName string, msg []byte) {
+func (r *Room) BroadcastOthers(excludePlayerID int, msg []byte) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	for name, p := range r.players {
-		if name != excludePlayerName && p.User != nil {
+	for _, p := range r.players {
+		if p.ID != excludePlayerID && p.User != nil {
 			p.User.TrySend(msg)
 		}
 	}
@@ -257,6 +274,7 @@ func (r *Room) BroadcastPlayerUpdate() {
 	playerList := make([]map[string]interface{}, 0, len(r.players))
 	for _, p := range r.players {
 		playerList = append(playerList, map[string]interface{}{
+			"id":     p.ID,
 			"name":   p.Name,
 			"points": p.Points,
 			"active": p.IsActive,

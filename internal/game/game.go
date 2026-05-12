@@ -3,15 +3,15 @@ package game
 import "encoding/json"
 
 type GameMessage struct {
-	Target string          // "" = broadcast, otherwise player name
+	Target int              // -1 = broadcast, otherwise player ID
 	Data   json.RawMessage
 }
 
 type Game interface {
-	HandleAction(playerName string, payload []byte) []GameMessage
-	State(playerName string) any
+	HandleAction(playerID int, payload []byte) []GameMessage
+	State(playerID int) any
 	Type() GameType
-	Start(players []string) []GameMessage
+	Start(playerIDs []int) []GameMessage
 }
 
 type GameType string

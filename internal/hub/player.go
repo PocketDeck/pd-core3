@@ -1,6 +1,7 @@
 package hub
 
 type Player struct {
+	ID       int
 	Name     string
 	Points   int
 	IsActive bool
@@ -8,8 +9,9 @@ type Player struct {
 	User     *User
 }
 
-func NewPlayer(name string) *Player {
+func NewPlayer(id int, name string) *Player {
 	return &Player{
+		ID:       id,
 		Name:     name,
 		Points:   0,
 		IsActive: false,

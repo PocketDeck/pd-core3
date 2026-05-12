@@ -82,19 +82,22 @@ func TestNewUnoGameConfig(t *testing.T) {
 
 func TestStart(t *testing.T) {
 	g := NewUnoGame(nil)
-	msgs := g.Start([]string{"Alice", "Bob"})
+	msgs := g.Start([]int{0, 1})
 
+	if msgs != nil {
+		t.Error("Expected Start to return nil (state is fetched via status)")
+	}
 	if g.state != StatePlaying {
 		t.Errorf("Expected state playing, got %v", g.state)
 	}
-	if len(g.players) != 2 {
-		t.Errorf("Expected 2 players, got %d", len(g.players))
+	if len(g.playerIDs) != 2 {
+		t.Errorf("Expected 2 players, got %d", len(g.playerIDs))
 	}
-	if len(g.hands["Alice"]) != 7 {
-		t.Errorf("Expected Alice to have 7 cards, got %d", len(g.hands["Alice"]))
+	if len(g.hands[0]) != 7 {
+		t.Errorf("Expected player 0 to have 7 cards, got %d", len(g.hands[0]))
 	}
-	if len(g.hands["Bob"]) != 7 {
-		t.Errorf("Expected Bob to have 7 cards, got %d", len(g.hands["Bob"]))
+	if len(g.hands[1]) != 7 {
+		t.Errorf("Expected player 1 to have 7 cards, got %d", len(g.hands[1]))
 	}
 	if len(g.discard) != 1 {
 		t.Errorf("Expected 1 card on discard pile, got %d", len(g.discard))
@@ -108,58 +111,35 @@ func TestStart(t *testing.T) {
 	if g.direction != 1 {
 		t.Errorf("Expected direction 1, got %d", g.direction)
 	}
-
-	if len(msgs) < 2 {
-		t.Fatal("Expected at least 2 messages from Start (public + private)")
-	}
-	foundPublic := false
-	for _, m := range msgs {
-		if m.Target == "" {
-			var data map[string]interface{}
-			json.Unmarshal(m.Data, &data)
-			if data["action"] == "game_state" {
-				foundPublic = true
-			}
-		} else {
-			var data map[string]interface{}
-			json.Unmarshal(m.Data, &data)
-			if _, ok := data["hand"]; ok {
-				hand := data["hand"].([]interface{})
-				if len(hand) != 7 {
-					t.Errorf("Expected private hand to have 7 cards, got %d", len(hand))
-				}
-			}
-		}
-	}
-	if !foundPublic {
-		t.Error("Expected public game_state broadcast")
-	}
 }
 
 func TestPlayCardColorMatch(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", "Bob"})
+	g.Start([]int{0, 1})
 
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
-	g.hands["Alice"] = []Card{{Color: ColorRed, Kind: KindNumber, Value: 5}}
+	g.hands[0] = []Card{{Color: ColorRed, Kind: KindNumber, Value: 5}}
 
 	payload, _ := json.Marshal(map[string]interface{}{
-		"action": "play_card",
-		"card":   map[string]interface{}{"color": "red", "kind": "number", "value": 5},
+		"action":     "play_card",
+		"card":       map[string]interface{}{"color": "red", "kind": "number", "value": 5},
 		"hand_index": 0,
 	})
-	msgs := g.HandleAction("Alice", payload)
+	msgs := g.HandleAction(0, payload)
 
 	if len(msgs) == 0 {
 		t.Fatal("Expected messages from play")
 	}
 	foundPlay := false
 	for _, m := range msgs {
-		if m.Target == "" {
+		if m.Target == -1 {
 			var data map[string]interface{}
 			json.Unmarshal(m.Data, &data)
 			if data["action"] == "card_played" {
 				foundPlay = true
+				if data["player"] != float64(0) {
+					t.Errorf("Expected player 0 in card_played, got %v", data["player"])
+				}
 			}
 		}
 	}
@@ -173,23 +153,23 @@ func TestPlayCardColorMatch(t *testing.T) {
 	if g.discard[1].Color != ColorRed || g.discard[1].Value != 5 {
 		t.Errorf("Expected red 5 on discard, got %v", g.discard[1])
 	}
-	if len(g.hands["Alice"]) != 0 {
-		t.Errorf("Expected Alice to have 0 cards left, got %d", len(g.hands["Alice"]))
+	if len(g.hands[0]) != 0 {
+		t.Errorf("Expected player 0 to have 0 cards left, got %d", len(g.hands[0]))
 	}
 }
 
 func TestPlayCardSymbolMatch(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", "Bob"})
+	g.Start([]int{0, 1})
 
-	g.hands["Alice"] = []Card{{Color: ColorBlue, Kind: KindSkip}}
+	g.hands[0] = []Card{{Color: ColorBlue, Kind: KindSkip}}
 	g.discard = []Card{{Color: ColorRed, Kind: KindSkip}}
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action": "play_card",
 		"card":   map[string]interface{}{"color": "blue", "kind": "skip"},
 	})
-	msgs := g.HandleAction("Alice", payload)
+	msgs := g.HandleAction(0, payload)
 
 	if len(msgs) == 0 {
 		t.Fatal("Expected messages")
@@ -197,7 +177,7 @@ func TestPlayCardSymbolMatch(t *testing.T) {
 	foundPlay := false
 	foundSkipped := false
 	for _, m := range msgs {
-		if m.Target == "" {
+		if m.Target == -1 {
 			var data map[string]interface{}
 			json.Unmarshal(m.Data, &data)
 			switch data["action"] {
@@ -218,14 +198,14 @@ func TestPlayCardSymbolMatch(t *testing.T) {
 
 func TestPlayCardNotYourTurn(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", "Bob"})
+	g.Start([]int{0, 1})
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action": "play_card",
 		"card":   map[string]interface{}{"color": "red", "kind": "number", "value": 5},
 	})
-	msgs := g.HandleAction("Bob", payload)
+	msgs := g.HandleAction(1, payload)
 
 	if len(msgs) != 1 {
 		t.Fatalf("Expected 1 error message, got %d", len(msgs))
@@ -235,22 +215,22 @@ func TestPlayCardNotYourTurn(t *testing.T) {
 	if data["error"] != "not_your_turn" {
 		t.Errorf("Expected 'not_your_turn' error, got %v", data["error"])
 	}
-	if msgs[0].Target != "Bob" {
-		t.Errorf("Error should be sent to Bob, got %s", msgs[0].Target)
+	if msgs[0].Target != 1 {
+		t.Errorf("Error should be sent to player 1, got %d", msgs[0].Target)
 	}
 }
 
 func TestPlayCardNotInHand(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", "Bob"})
-	g.hands["Alice"] = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
+	g.Start([]int{0, 1})
+	g.hands[0] = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 5}}
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action": "play_card",
 		"card":   map[string]interface{}{"color": "red", "kind": "number", "value": 7},
 	})
-	msgs := g.HandleAction("Alice", payload)
+	msgs := g.HandleAction(0, payload)
 	if len(msgs) == 0 {
 		t.Fatal("Expected error message")
 	}
@@ -263,15 +243,15 @@ func TestPlayCardNotInHand(t *testing.T) {
 
 func TestPlayCardCannotPlay(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", "Bob"})
-	g.hands["Alice"] = []Card{{Color: ColorBlue, Kind: KindSkip}}
+	g.Start([]int{0, 1})
+	g.hands[0] = []Card{{Color: ColorBlue, Kind: KindSkip}}
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action": "play_card",
 		"card":   map[string]interface{}{"color": "blue", "kind": "skip"},
 	})
-	msgs := g.HandleAction("Alice", payload)
+	msgs := g.HandleAction(0, payload)
 	if len(msgs) == 0 {
 		t.Fatal("Expected error message")
 	}
@@ -284,15 +264,15 @@ func TestPlayCardCannotPlay(t *testing.T) {
 
 func TestPlayWildNeedsColor(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", "Bob"})
-	g.hands["Alice"] = []Card{{Color: ColorWild, Kind: KindWild}}
+	g.Start([]int{0, 1})
+	g.hands[0] = []Card{{Color: ColorWild, Kind: KindWild}}
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action": "play_card",
 		"card":   map[string]interface{}{"color": "wild", "kind": "wild"},
 	})
-	msgs := g.HandleAction("Alice", payload)
+	msgs := g.HandleAction(0, payload)
 	if len(msgs) == 0 {
 		t.Fatal("Expected error message")
 	}
@@ -305,8 +285,8 @@ func TestPlayWildNeedsColor(t *testing.T) {
 
 func TestPlayWildWithColor(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", "Bob"})
-	g.hands["Alice"] = []Card{{Color: ColorWild, Kind: KindWild}}
+	g.Start([]int{0, 1})
+	g.hands[0] = []Card{{Color: ColorWild, Kind: KindWild}}
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 
 	payload, _ := json.Marshal(map[string]interface{}{
@@ -315,11 +295,11 @@ func TestPlayWildWithColor(t *testing.T) {
 		"wildColor":  "blue",
 		"hand_index": 0,
 	})
-	msgs := g.HandleAction("Alice", payload)
+	msgs := g.HandleAction(0, payload)
 
 	foundPlay := false
 	for _, m := range msgs {
-		if m.Target == "" {
+		if m.Target == -1 {
 			var data map[string]interface{}
 			json.Unmarshal(m.Data, &data)
 			if data["action"] == "card_played" {
@@ -341,21 +321,21 @@ func TestPlayWildWithColor(t *testing.T) {
 
 func TestDrawCard(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", "Bob"})
-	initialCount := len(g.hands["Alice"])
+	g.Start([]int{0, 1})
+	initialCount := len(g.hands[0])
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action": "draw_card",
 	})
-	msgs := g.HandleAction("Alice", payload)
+	msgs := g.HandleAction(0, payload)
 
-	if len(g.hands["Alice"]) != initialCount+1 {
-		t.Errorf("Expected %d cards after draw, got %d", initialCount+1, len(g.hands["Alice"]))
+	if len(g.hands[0]) != initialCount+1 {
+		t.Errorf("Expected %d cards after draw, got %d", initialCount+1, len(g.hands[0]))
 	}
 
 	foundDraw := false
 	for _, m := range msgs {
-		if m.Target == "Alice" {
+		if m.Target == 0 {
 			var data map[string]interface{}
 			json.Unmarshal(m.Data, &data)
 			if data["action"] == "draw" {
@@ -364,23 +344,23 @@ func TestDrawCard(t *testing.T) {
 		}
 	}
 	if !foundDraw {
-		t.Error("Expected draw message to Alice")
+		t.Error("Expected draw message to player 0")
 	}
 }
 
 func TestDrawCardPenalty(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", "Bob"})
+	g.Start([]int{0, 1})
 	g.drawCounter = 2
-	initialCount := len(g.hands["Alice"])
+	initialCount := len(g.hands[0])
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action": "draw_card",
 	})
-	msgs := g.HandleAction("Alice", payload)
+	msgs := g.HandleAction(0, payload)
 
-	if len(g.hands["Alice"]) != initialCount+2 {
-		t.Errorf("Expected %d cards after draw penalty, got %d", initialCount+2, len(g.hands["Alice"]))
+	if len(g.hands[0]) != initialCount+2 {
+		t.Errorf("Expected %d cards after draw penalty, got %d", initialCount+2, len(g.hands[0]))
 	}
 	if g.drawCounter != 0 {
 		t.Errorf("Expected draw counter to be 0, got %d", g.drawCounter)
@@ -388,7 +368,7 @@ func TestDrawCardPenalty(t *testing.T) {
 
 	foundDraw := false
 	for _, m := range msgs {
-		if m.Target == "Alice" {
+		if m.Target == 0 {
 			var data map[string]interface{}
 			json.Unmarshal(m.Data, &data)
 			if data["action"] == "draw" {
@@ -401,42 +381,41 @@ func TestDrawCardPenalty(t *testing.T) {
 		}
 	}
 	if !foundDraw {
-		t.Error("Expected draw message to Alice")
+		t.Error("Expected draw message to player 0")
 	}
 }
 
 func TestSkipEffect(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", "Bob", "Charlie"})
+	g.Start([]int{0, 1, 2})
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 
-	aliceHand := []Card{{Color: ColorRed, Kind: KindSkip}}
-	g.hands["Alice"] = aliceHand
+	g.hands[0] = []Card{{Color: ColorRed, Kind: KindSkip}}
 	g.currentTurn = 0
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action": "play_card",
 		"card":   map[string]interface{}{"color": "red", "kind": "skip"},
 	})
-	g.HandleAction("Alice", payload)
+	g.HandleAction(0, payload)
 
 	if g.currentTurn != 2 {
-		t.Errorf("After skip, expected turn at index 2 (Charlie), got %d (player %s)", g.currentTurn, g.players[g.currentTurn])
+		t.Errorf("After skip, expected turn at index 2 (player 2), got %d (playerID %d)", g.currentTurn, g.playerIDs[g.currentTurn])
 	}
 }
 
 func TestReverseEffect(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", "Bob", "Charlie"})
+	g.Start([]int{0, 1, 2})
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
-	g.hands["Alice"] = []Card{{Color: ColorRed, Kind: KindReverse}}
+	g.hands[0] = []Card{{Color: ColorRed, Kind: KindReverse}}
 	g.currentTurn = 0
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action": "play_card",
 		"card":   map[string]interface{}{"color": "red", "kind": "reverse"},
 	})
-	g.HandleAction("Alice", payload)
+	g.HandleAction(0, payload)
 
 	if g.direction != -1 {
 		t.Errorf("Expected direction -1 after reverse, got %d", g.direction)
@@ -445,59 +424,59 @@ func TestReverseEffect(t *testing.T) {
 
 func TestDraw2Effect(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", 	"Bob"})
+	g.Start([]int{0, 1})
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
-	g.hands["Alice"] = []Card{{Color: ColorRed, Kind: KindDraw2}}
+	g.hands[0] = []Card{{Color: ColorRed, Kind: KindDraw2}}
 	g.currentTurn = 0
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action": "play_card",
 		"card":   map[string]interface{}{"color": "red", "kind": "draw2"},
 	})
-	g.HandleAction("Alice", payload)
+	g.HandleAction(0, payload)
 
 	if g.drawCounter != 2 {
 		t.Errorf("Expected draw counter 2, got %d", g.drawCounter)
 	}
 
-	initialBob := len(g.hands["Bob"])
+	initialBob := len(g.hands[1])
 	bobPayload, _ := json.Marshal(map[string]interface{}{
 		"action": "draw_card",
 	})
-	g.HandleAction("Bob", bobPayload)
-	if len(g.hands["Bob"]) != initialBob+2 {
-		t.Errorf("Expected Bob to draw 2 penalty cards, got %d more", len(g.hands["Bob"])-initialBob)
+	g.HandleAction(1, bobPayload)
+	if len(g.hands[1]) != initialBob+2 {
+		t.Errorf("Expected player 1 to draw 2 penalty cards, got %d more", len(g.hands[1])-initialBob)
 	}
 }
 
 func TestGameOver(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", 	"Bob"})
+	g.Start([]int{0, 1})
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 5}}
-	g.hands["Alice"] = []Card{{Color: ColorRed, Kind: KindNumber, Value: 5}}
+	g.hands[0] = []Card{{Color: ColorRed, Kind: KindNumber, Value: 5}}
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action": "play_card",
 		"card":   map[string]interface{}{"color": "red", "kind": "number", "value": 5},
 	})
-	msgs := g.HandleAction("Alice", payload)
+	msgs := g.HandleAction(0, payload)
 
 	if g.state != StateFinished {
 		t.Errorf("Expected StateFinished, got %v", g.state)
 	}
-	if g.winner != "Alice" {
-		t.Errorf("Expected winner Alice, got %s", g.winner)
+	if g.winner != 0 {
+		t.Errorf("Expected winner 0, got %d", g.winner)
 	}
 
 	foundOver := false
 	for _, m := range msgs {
-		if m.Target == "" {
+		if m.Target == -1 {
 			var data map[string]interface{}
 			json.Unmarshal(m.Data, &data)
 			if data["action"] == "game_over" {
 				foundOver = true
-				if data["winner"] != "Alice" {
-					t.Errorf("Expected winner Alice in game_over, got %v", data["winner"])
+				if data["winner"] != float64(0) {
+					t.Errorf("Expected winner 0 in game_over, got %v", data["winner"])
 				}
 			}
 		}
@@ -509,9 +488,9 @@ func TestGameOver(t *testing.T) {
 
 func TestUnoCall(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", 	"Bob"})
+	g.Start([]int{0, 1})
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
-	g.hands["Alice"] = []Card{
+	g.hands[0] = []Card{
 		{Color: ColorRed, Kind: KindNumber, Value: 5},
 		{Color: ColorBlue, Kind: KindNumber, Value: 2},
 	}
@@ -520,21 +499,21 @@ func TestUnoCall(t *testing.T) {
 		"action": "play_card",
 		"card":   map[string]interface{}{"color": "red", "kind": "number", "value": 5},
 	})
-	msgs := g.HandleAction("Alice", payload)
+	msgs := g.HandleAction(0, payload)
 
-	if len(g.hands["Alice"]) != 1 {
-		t.Fatalf("Expected Alice to have 1 card remaining after play, got %d", len(g.hands["Alice"]))
+	if len(g.hands[0]) != 1 {
+		t.Fatalf("Expected player 0 to have 1 card remaining after play, got %d", len(g.hands[0]))
 	}
 
 	foundUno := false
 	for _, m := range msgs {
-		if m.Target == "" {
+		if m.Target == -1 {
 			var data map[string]interface{}
 			json.Unmarshal(m.Data, &data)
 			if data["action"] == "uno" {
 				foundUno = true
-				if data["player"] != "Alice" {
-					t.Errorf("Expected uno player Alice, got %v", data["player"])
+				if data["player"] != float64(0) {
+					t.Errorf("Expected uno player 0, got %v", data["player"])
 				}
 			}
 		}
@@ -546,24 +525,24 @@ func TestUnoCall(t *testing.T) {
 
 func TestReverseTwoPlayers(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", 	"Bob"})
+	g.Start([]int{0, 1})
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
-	g.hands["Alice"] = []Card{{Color: ColorRed, Kind: KindReverse}}
+	g.hands[0] = []Card{{Color: ColorRed, Kind: KindReverse}}
 	g.currentTurn = 0
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action": "play_card",
 		"card":   map[string]interface{}{"color": "red", "kind": "reverse"},
 	})
-	msgs := g.HandleAction("Alice", payload)
+	msgs := g.HandleAction(0, payload)
 
 	if g.currentTurn != 0 {
-		t.Errorf("With 2 players reverse should act like skip (same player's turn), got index %d (%s)", g.currentTurn, g.players[g.currentTurn])
+		t.Errorf("With 2 players reverse should act like skip (same player's turn), got index %d (playerID %d)", g.currentTurn, g.playerIDs[g.currentTurn])
 	}
 
 	foundSkipped := false
 	for _, m := range msgs {
-		if m.Target == "" {
+		if m.Target == -1 {
 			var data map[string]interface{}
 			json.Unmarshal(m.Data, &data)
 			if data["action"] == "player_skipped" {
@@ -578,9 +557,9 @@ func TestReverseTwoPlayers(t *testing.T) {
 
 func TestStatePublic(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", 	"Bob"})
+	g.Start([]int{0, 1})
 
-	state := g.State("")
+	state := g.State(-1)
 	stateMap, ok := state.(map[string]interface{})
 	if !ok {
 		t.Fatal("Expected map")
@@ -601,9 +580,9 @@ func TestStatePublic(t *testing.T) {
 
 func TestStatePrivate(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", 	"Bob"})
+	g.Start([]int{0, 1})
 
-	state := g.State("Alice")
+	state := g.State(0)
 	stateMap, ok := state.(map[string]interface{})
 	if !ok {
 		t.Fatal("Expected map")
@@ -623,12 +602,12 @@ func TestStatePrivate(t *testing.T) {
 
 func TestUnknownActionType(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", 	"Bob"})
+	g.Start([]int{0, 1})
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action": "dance",
 	})
-	msgs := g.HandleAction("Alice", payload)
+	msgs := g.HandleAction(0, payload)
 	if len(msgs) == 0 {
 		t.Fatal("Expected error message")
 	}
@@ -641,9 +620,9 @@ func TestUnknownActionType(t *testing.T) {
 
 func TestInvalidJSONPayload(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", 	"Bob"})
+	g.Start([]int{0, 1})
 
-	msgs := g.HandleAction("Alice", []byte("not json"))
+	msgs := g.HandleAction(0, []byte("not json"))
 	if len(msgs) == 0 {
 		t.Fatal("Expected error message")
 	}
@@ -656,14 +635,14 @@ func TestInvalidJSONPayload(t *testing.T) {
 
 func TestGameFinishedNoAction(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]string{"Alice", 	"Bob"})
+	g.Start([]int{0, 1})
 	g.state = StateFinished
-	g.winner = "Alice"
+	g.winner = 0
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action": "draw_card",
 	})
-	msgs := g.HandleAction("Bob", payload)
+	msgs := g.HandleAction(1, payload)
 	if msgs != nil {
 		t.Error("Expected no messages when game is finished")
 	}
@@ -674,16 +653,16 @@ func TestPlayAfterDrawConfig(t *testing.T) {
 		"playAfterDraw": false,
 	}
 	g := NewUnoGame(config)
-	g.Start([]string{"Alice", 	"Bob"})
+	g.Start([]int{0, 1})
 
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
-	g.hands["Alice"] = []Card{{Color: ColorRed, Kind: KindNumber, Value: 5}}
+	g.hands[0] = []Card{{Color: ColorRed, Kind: KindNumber, Value: 5}}
 	g.currentTurn = 0
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action": "draw_card",
 	})
-	msgs := g.HandleAction("Alice", payload)
+	msgs := g.HandleAction(0, payload)
 
 	if g.playAfterDrawIndex != -1 {
 		t.Errorf("Expected playAfterDrawIndex -1 when PlayAfterDraw is false, got %d", g.playAfterDrawIndex)
@@ -691,7 +670,7 @@ func TestPlayAfterDrawConfig(t *testing.T) {
 
 	hasKeepOrPlay := false
 	for _, m := range msgs {
-		if m.Target == "Alice" {
+		if m.Target == 0 {
 			var data map[string]interface{}
 			json.Unmarshal(m.Data, &data)
 			if data["action"] == "keep_or_play" {

@@ -96,6 +96,7 @@ Join an existing game room
 **Notes:**
 - **Reconnect**: If the name exists and the player is inactive, you automatically reconnect!
 - **Unique names**: Names are unique per room - error "name_taken" if name is already active
+- **Player IDs**: Each player is assigned a unique numeric ID (0, 1, 2, ...) when joining. IDs are used in all game event messages. The `players` list in status/broadcasts includes both `id` and `name` for mapping.
 
 ---
 
@@ -205,6 +206,7 @@ Get current room and game state
     "roomID": "abc123",
     "players": [
       {
+        "id": 0,
         "name": "Alice",
         "points": 0,
         "active": true,
@@ -246,31 +248,35 @@ Send a game-specific action
 
 ## Uno Game Protocol
 
-### Game State (on start + via status)
+### Player IDs
 
-When game starts (`start` broadcast), the game broadcasts a `game_state` message followed by unicast `hand` messages per player:
+Each player is assigned a numeric ID when they join the room (0, 1, 2, ... in join order). Game events reference players by ID only. The frontend maps IDs to names using the `players` list from `status` or `players` broadcasts.
+
+### Game State
+
+There is no dedicated `game_state` message. When the game starts (`start` broadcast + `navigate`), the client navigates to the game page and calls `status` to obtain the full state. The `status` response includes the game state under the `game` field:
 
 ```json
 {
-  "action": "game_state",
-  "state": "playing",
-  "turn": "Alice",
-  "direction": 1,
-  "drawPile": 94,
-  "topCard": { "color": "red", "kind": "number", "value": 3 },
-  "players": [
-    { "name": "Alice", "card_count": 7 },
-    { "name": "Bob", "card_count": 7 }
-  ]
+  "action": "status",
+  "roomID": "abc123",
+  "players": [ ... ],
+  "game": {
+    "state": "playing",
+    "turn": 0,
+    "direction": 1,
+    "drawPile": 94,
+    "topCard": { "color": "red", "kind": "number", "value": 3 },
+    "players": [
+      { "id": 0, "card_count": 7 },
+      { "id": 1, "card_count": 7 }
+    ],
+    "hand": [ { "color": "red", "kind": "number", "value": 5 }, ... ]
+  }
 }
 ```
 
-Followed by unicast to each player:
-```json
-{ "hand": [ { "color": "red", "kind": "number", "value": 5 }, ... ] }
-```
-
-The same data is available via `status` response under the `game` field.
+The `hand` field is specific to the requesting player (it is the private hand of the player who called `status`).
 
 ### Actions (sent as `payload` in game action)
 
@@ -286,7 +292,7 @@ Response (unicast to player):
 
 Broadcast to others:
 ```json
-{ "action": "card_drawn", "player": "Alice", "count": 1 }
+{ "action": "card_drawn", "player": 0, "count": 1 }
 ```
 
 If `playAfterDraw` is enabled and the drawn card can be played:
@@ -308,7 +314,7 @@ If `playAfterDraw` is enabled and the drawn card can be played:
 
 Response (broadcast):
 ```json
-{ "action": "card_played", "player": "Alice", "card": {...}, "hand_index": 0 }
+{ "action": "card_played", "player": 0, "card": {...}, "hand_index": 0 }
 ```
 
 **Call Uno:**
@@ -317,7 +323,7 @@ Response (broadcast):
 ```
 Response (broadcast):
 ```json
-{ "action": "uno_called", "player": "Alice" }
+{ "action": "uno_called", "player": 0 }
 ```
 
 **Declare wild color:**
@@ -326,19 +332,19 @@ Response (broadcast):
 ```
 Response (broadcast):
 ```json
-{ "action": "color_declared", "player": "Alice", "color": "blue" }
+{ "action": "color_declared", "player": 0, "color": "blue" }
 ```
 
 ### Event Messages (broadcast)
 
 **Turn change:**
 ```json
-{ "action": "turn", "player": "Bob" }
+{ "action": "turn", "player": 1 }
 ```
 
 **Player skipped (Skip card or 2-player Reverse):**
 ```json
-{ "action": "player_skipped", "player": "Bob" }
+{ "action": "player_skipped", "player": 1 }
 ```
 
 **Direction reversed (3+ players):**
@@ -348,17 +354,17 @@ Response (broadcast):
 
 **Draw penalty (Draw Two or Wild Draw Four):**
 ```json
-{ "action": "draw_penalty", "player": "Bob", "count": 2 }
+{ "action": "draw_penalty", "player": 1, "count": 2 }
 ```
 
 **Uno (player has 1 card remaining after play):**
 ```json
-{ "action": "uno", "player": "Alice" }
+{ "action": "uno", "player": 0 }
 ```
 
 **Game over:**
 ```json
-{ "action": "game_over", "winner": "Alice" }
+{ "action": "game_over", "winner": 0 }
 ```
 
 ### Error messages (unicast to the player)
@@ -384,6 +390,7 @@ Possible errors: `not_your_turn`, `card_not_in_hand`, `cannot_play_card`, `must_
   "action": "players",
   "players": [
     {
+      "id": 0,
       "name": "Alice",
       "points": 0,
       "active": true,
