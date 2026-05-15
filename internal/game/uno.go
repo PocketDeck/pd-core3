@@ -27,9 +27,39 @@ const (
 )
 
 type Card struct {
-	Color CardColor `json:"color"`
-	Kind  CardKind  `json:"kind"`
-	Value int       `json:"value,omitempty"`
+	Color CardColor `json:"-"`
+	Kind  CardKind  `json:"-"`
+	Value int       `json:"-"`
+}
+
+func (c Card) cardID() int {
+	if c.Kind == KindWild || c.Kind == KindWildDraw4 {
+		if c.Kind == KindWildDraw4 {
+			return 53
+		}
+		return 52
+	}
+	colorOrder := map[CardColor]int{"red": 0, "blue": 1, "green": 2, "yellow": 3}
+	kindIdx := 0
+	switch c.Kind {
+	case KindNumber:
+		kindIdx = c.Value
+	case KindSkip:
+		kindIdx = 10
+	case KindReverse:
+		kindIdx = 11
+	case KindDraw2:
+		kindIdx = 12
+	}
+	return colorOrder[c.Color]*13 + kindIdx
+}
+
+func (c Card) MarshalJSON() ([]byte, error) {
+	m := map[string]interface{}{"id": c.cardID()}
+	if c.cardID() >= 52 && c.Color != "" && c.Color != ColorWild {
+		m["color"] = c.Color
+	}
+	return json.Marshal(m)
 }
 
 type GameState string
@@ -60,8 +90,8 @@ func defaultConfig() UnoConfig {
 
 type UnoGame struct {
 	state              GameState
-	playerIDs          []int
-	hands              map[int][]Card
+	playerIDs          []PID
+	hands              map[PID][]Card
 	deck               []Card
 	discard            []Card
 	currentTurn        int
@@ -69,7 +99,7 @@ type UnoGame struct {
 	config             UnoConfig
 	drawCounter        int
 	playAfterDrawIndex int
-	winner             int
+	winner             PID
 }
 
 func NewUnoGame(config map[string]interface{}) *UnoGame {
@@ -94,7 +124,8 @@ func NewUnoGame(config map[string]interface{}) *UnoGame {
 		config:             cfg,
 		direction:          1,
 		playAfterDrawIndex: -1,
-		winner:             -1,
+		winner:             BroadcastPID,
+		hands:              make(map[PID][]Card),
 	}
 }
 
@@ -102,9 +133,8 @@ func (u *UnoGame) Type() GameType {
 	return GameUno
 }
 
-func (u *UnoGame) Start(playerIDs []int) []GameMessage {
+func (u *UnoGame) Start(playerIDs []PID) []GameMessage {
 	u.playerIDs = playerIDs
-	u.hands = make(map[int][]Card, len(playerIDs))
 	u.deck = buildDeck()
 	shuffle(u.deck)
 
@@ -132,11 +162,11 @@ func (u *UnoGame) Start(playerIDs []int) []GameMessage {
 	return nil
 }
 
-func (u *UnoGame) currentPlayerID() int {
+func (u *UnoGame) currentPlayerID() PID {
 	return u.playerIDs[u.currentTurn]
 }
 
-func (u *UnoGame) HandleAction(playerID int, payload []byte) []GameMessage {
+func (u *UnoGame) HandleAction(playerID PID, payload []byte) []GameMessage {
 	if u.state == StateFinished {
 		return nil
 	}
@@ -157,12 +187,14 @@ func (u *UnoGame) HandleAction(playerID int, payload []byte) []GameMessage {
 		return u.handleCallUno(playerID)
 	case "declare_color":
 		return u.handleDeclareColor(playerID, action)
+	case "reorder_hand":
+		return u.handleReorder(playerID, action)
 	default:
 		return u.errTo(playerID, "unknown_game_action")
 	}
 }
 
-func (u *UnoGame) handlePlay(playerID int, action map[string]interface{}) []GameMessage {
+func (u *UnoGame) handlePlay(playerID PID, action map[string]interface{}) []GameMessage {
 	if playerID != u.currentPlayerID() {
 		return u.errTo(playerID, "not_your_turn")
 	}
@@ -225,17 +257,17 @@ func (u *UnoGame) handlePlay(playerID int, action map[string]interface{}) []Game
 		"card":       json.RawMessage(cardJSON),
 		"hand_index": idx,
 	}
-	msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(playMsg)})
+	msgs = append(msgs, GameMessage{Target: BroadcastPID, Data: marshalMsg(playMsg)})
 
 	if card.Kind == KindSkip {
 		u.advanceTurn()
 		skipID := u.currentPlayerID()
 		u.advanceTurn()
-		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
+		msgs = append(msgs, GameMessage{Target: BroadcastPID, Data: marshalMsg(map[string]interface{}{
 			"action": "player_skipped",
 			"player": skipID,
 		})})
-		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
+		msgs = append(msgs, GameMessage{Target: BroadcastPID, Data: marshalMsg(map[string]interface{}{
 			"action": "turn",
 			"player": u.currentPlayerID(),
 		})})
@@ -246,17 +278,17 @@ func (u *UnoGame) handlePlay(playerID int, action map[string]interface{}) []Game
 		u.direction *= -1
 		if len(u.playerIDs) == 2 {
 			skipID := u.playerIDs[u.nextPlayerIndex()]
-			msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
+			msgs = append(msgs, GameMessage{Target: BroadcastPID, Data: marshalMsg(map[string]interface{}{
 				"action": "player_skipped",
 				"player": skipID,
 			})})
-			msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
+			msgs = append(msgs, GameMessage{Target: BroadcastPID, Data: marshalMsg(map[string]interface{}{
 				"action": "turn",
 				"player": u.currentPlayerID(),
 			})})
 			return msgs
 		}
-		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
+		msgs = append(msgs, GameMessage{Target: BroadcastPID, Data: marshalMsg(map[string]interface{}{
 			"action":    "direction_reversed",
 			"direction": u.direction,
 		})})
@@ -267,13 +299,13 @@ func (u *UnoGame) handlePlay(playerID int, action map[string]interface{}) []Game
 		u.drawCounter += 2
 		nextIdx := u.nextPlayerIndex()
 		nextID := u.playerIDs[nextIdx]
-		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
+		msgs = append(msgs, GameMessage{Target: BroadcastPID, Data: marshalMsg(map[string]interface{}{
 			"action": "draw_penalty",
 			"player": nextID,
 			"count":  2,
 		})})
 		u.currentTurn = nextIdx
-		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
+		msgs = append(msgs, GameMessage{Target: BroadcastPID, Data: marshalMsg(map[string]interface{}{
 			"action": "turn",
 			"player": u.currentPlayerID(),
 		})})
@@ -284,13 +316,13 @@ func (u *UnoGame) handlePlay(playerID int, action map[string]interface{}) []Game
 		u.drawCounter += 4
 		nextIdx := u.nextPlayerIndex()
 		nextID := u.playerIDs[nextIdx]
-		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
+		msgs = append(msgs, GameMessage{Target: BroadcastPID, Data: marshalMsg(map[string]interface{}{
 			"action": "draw_penalty",
 			"player": nextID,
 			"count":  4,
 		})})
 		u.currentTurn = nextIdx
-		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
+		msgs = append(msgs, GameMessage{Target: BroadcastPID, Data: marshalMsg(map[string]interface{}{
 			"action": "turn",
 			"player": u.currentPlayerID(),
 		})})
@@ -300,7 +332,7 @@ func (u *UnoGame) handlePlay(playerID int, action map[string]interface{}) []Game
 	if len(u.hands[playerID]) == 0 {
 		u.state = StateFinished
 		u.winner = playerID
-		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
+		msgs = append(msgs, GameMessage{Target: BroadcastPID, Data: marshalMsg(map[string]interface{}{
 			"action": "game_over",
 			"winner": playerID,
 		})})
@@ -308,7 +340,7 @@ func (u *UnoGame) handlePlay(playerID int, action map[string]interface{}) []Game
 	}
 
 	if len(u.hands[playerID]) == 1 {
-		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
+		msgs = append(msgs, GameMessage{Target: BroadcastPID, Data: marshalMsg(map[string]interface{}{
 			"action": "uno",
 			"player": playerID,
 		})})
@@ -317,7 +349,7 @@ func (u *UnoGame) handlePlay(playerID int, action map[string]interface{}) []Game
 	return append(msgs, u.nextTurnMsg()...)
 }
 
-func (u *UnoGame) handleDraw(playerID int) []GameMessage {
+func (u *UnoGame) handleDraw(playerID PID) []GameMessage {
 	if playerID != u.currentPlayerID() {
 		return u.errTo(playerID, "not_your_turn")
 	}
@@ -341,7 +373,7 @@ func (u *UnoGame) handleDraw(playerID int) []GameMessage {
 			"action": "draw",
 			"cards":  json.RawMessage(drawnJSON),
 		})})
-		msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
+		msgs = append(msgs, GameMessage{Target: BroadcastExceptCurrentPID, Data: marshalMsg(map[string]interface{}{
 			"action": "card_drawn",
 			"player": playerID,
 			"count":  len(drawn),
@@ -361,7 +393,7 @@ func (u *UnoGame) handleDraw(playerID int) []GameMessage {
 		"action": "draw",
 		"cards":  json.RawMessage(cardJSON),
 	})})
-	msgs = append(msgs, GameMessage{Target: -1, Data: marshalMsg(map[string]interface{}{
+	msgs = append(msgs, GameMessage{Target: BroadcastExceptCurrentPID, Data: marshalMsg(map[string]interface{}{
 		"action": "card_drawn",
 		"player": playerID,
 		"count":  1,
@@ -381,7 +413,7 @@ func (u *UnoGame) handleDraw(playerID int) []GameMessage {
 	return append(msgs, u.nextTurnMsg()...)
 }
 
-func (u *UnoGame) handleCallUno(playerID int) []GameMessage {
+func (u *UnoGame) handleCallUno(playerID PID) []GameMessage {
 	msgs := u.msg(map[string]interface{}{
 		"action": "uno_called",
 		"player": playerID,
@@ -389,7 +421,7 @@ func (u *UnoGame) handleCallUno(playerID int) []GameMessage {
 	return msgs
 }
 
-func (u *UnoGame) handleDeclareColor(playerID int, action map[string]interface{}) []GameMessage {
+func (u *UnoGame) handleDeclareColor(playerID PID, action map[string]interface{}) []GameMessage {
 	color, ok := action["color"].(string)
 	if !ok || color == "" || color == "wild" {
 		return u.errTo(playerID, "invalid_color")
@@ -417,6 +449,39 @@ func (u *UnoGame) handleDeclareColor(playerID int, action map[string]interface{}
 		"color":  color,
 	})
 	return msgs
+}
+
+func (u *UnoGame) handleReorder(playerID PID, action map[string]interface{}) []GameMessage {
+	f, ok := action["from"].(float64)
+	if !ok {
+		return u.errTo(playerID, "invalid_from")
+	}
+	t, ok := action["to"].(float64)
+	if !ok {
+		return u.errTo(playerID, "invalid_to")
+	}
+
+	fromIdx, toIdx := int(f), int(t)
+	hand := u.hands[playerID]
+
+	if fromIdx < 0 || fromIdx >= len(hand) {
+		return u.errTo(playerID, "invalid_index")
+	}
+	if toIdx < 0 || toIdx > len(hand) {
+		return u.errTo(playerID, "invalid_index")
+	}
+
+	card := hand[fromIdx]
+	hand = append(hand[:fromIdx], hand[fromIdx+1:]...)
+	hand = append(hand[:toIdx], append([]Card{card}, hand[toIdx:]...)...)
+	u.hands[playerID] = hand
+
+	return []GameMessage{{
+		Target: playerID,
+		Data: marshalMsg(map[string]interface{}{
+			"action": "hand_reordered",
+		}),
+	}}
 }
 
 func (u *UnoGame) canPlay(card Card) bool {
@@ -507,7 +572,7 @@ func (u *UnoGame) broadcastPlayers() []map[string]interface{} {
 	return list
 }
 
-func (u *UnoGame) State(playerID int) any {
+func (u *UnoGame) State(playerID PID) any {
 	publicState := map[string]interface{}{
 		"state":     u.state,
 		"players":   u.broadcastPlayers(),
@@ -520,7 +585,7 @@ func (u *UnoGame) State(playerID int) any {
 	if len(u.discard) > 0 {
 		publicState["topCard"] = u.discard[len(u.discard)-1]
 	}
-	if u.winner >= 0 {
+	if u.winner != BroadcastPID {
 		publicState["winner"] = u.winner
 	}
 
@@ -531,10 +596,10 @@ func (u *UnoGame) State(playerID int) any {
 }
 
 func (u *UnoGame) msg(data map[string]interface{}) []GameMessage {
-	return []GameMessage{{Target: -1, Data: marshalMsg(data)}}
+	return []GameMessage{{Target: BroadcastPID, Data: marshalMsg(data)}}
 }
 
-func (u *UnoGame) errTo(playerID int, err string) []GameMessage {
+func (u *UnoGame) errTo(playerID PID, err string) []GameMessage {
 	return []GameMessage{{
 		Target: playerID,
 		Data: marshalMsg(map[string]interface{}{

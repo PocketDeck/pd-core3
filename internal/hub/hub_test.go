@@ -18,14 +18,14 @@ func NewMockGame() *MockGame {
 	return &MockGame{}
 }
 
-func (m *MockGame) HandleAction(playerID int, payload []byte) []game.GameMessage {
+func (m *MockGame) HandleAction(playerID game.PID, payload []byte) []game.GameMessage {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.actions = append(m.actions, fmt.Sprintf("%d", playerID))
 	return nil
 }
 
-func (m *MockGame) Start(playerIDs []int) []game.GameMessage {
+func (m *MockGame) Start(playerIDs []game.PID) []game.GameMessage {
 	return nil
 }
 
@@ -33,7 +33,7 @@ func (m *MockGame) Type() game.GameType {
 	return game.GameType("mock")
 }
 
-func (m *MockGame) State(playerID int) any {
+func (m *MockGame) State(playerID game.PID) any {
 	return map[string]interface{}{
 		"type":   "mock",
 		"player": playerID,
@@ -145,72 +145,7 @@ func TestConnectUserToPlayer(t *testing.T) {
 
 	player := room.AddPlayer("Alice")
 	user := room.AddUser(sendChan)
-
-	success := room.ConnectUserToPlayer(user, "Alice")
-	if !success {
-		t.Fatal("Expected connection to succeed")
-	}
-
-	if user.Player != player {
-		t.Error("Expected user to be connected to player")
-	}
-
-	if player.User != user {
-		t.Error("Expected player to be connected to user")
-	}
-
-	if !player.IsActive {
-		t.Error("Expected player to be active")
-	}
-}
-
-func TestConnectUserToNonExistentPlayer(t *testing.T) {
-	room := NewRoom("test-room", "", nil)
-	sendChan := makeSendChan()
-
-	user := room.AddUser(sendChan)
-	success := room.ConnectUserToPlayer(user, "nobody")
-	if success {
-		t.Error("Expected connection to fail for non-existent player")
-	}
-}
-
-func TestConnectUserToPlayerReplacesExistingBinding(t *testing.T) {
-	room := NewRoom("test-room", "", nil)
-	sendChan1 := makeSendChan()
-	sendChan2 := makeSendChan()
-
-	player := room.AddPlayer("Alice")
-
-	user1 := room.AddUser(sendChan1)
-	room.ConnectUserToPlayer(user1, "Alice")
-
-	user2 := room.AddUser(sendChan2)
-	success := room.ConnectUserToPlayer(user2, "Alice")
-	if !success {
-		t.Fatal("Expected connection to succeed")
-	}
-
-	if player.User != user2 {
-		t.Error("Expected player to be connected to new user")
-	}
-
-	if user1.Player != nil {
-		t.Error("Expected old user to be disconnected from player")
-	}
-
-	if user2.Player != player {
-		t.Error("Expected new user to be connected to player")
-	}
-}
-
-func TestDisconnectUser(t *testing.T) {
-	room := NewRoom("test-room", "", nil)
-	sendChan := makeSendChan()
-
-	player := room.AddPlayer("Alice")
-	user := room.AddUser(sendChan)
-	room.ConnectUserToPlayer(user, "Alice")
+	room.ConnectUserToPlayer(user, player.ID)
 
 	room.RemoveUser(user.ID)
 
@@ -235,12 +170,12 @@ func TestPlayerReconnectBySameName(t *testing.T) {
 	player := room.AddPlayer("Alice")
 
 	user1 := room.AddUser(sendChan1)
-	room.ConnectUserToPlayer(user1, "Alice")
+	room.ConnectUserToPlayer(user1, player.ID)
 
 	room.RemoveUser(user1.ID)
 
 	user2 := room.AddUser(sendChan2)
-	success := room.ConnectUserToPlayer(user2, "Alice")
+	success := room.ConnectUserToPlayer(user2, player.ID)
 	if !success {
 		t.Fatal("Expected reconnect to succeed")
 	}
@@ -261,11 +196,11 @@ func TestPlayerReconnectBySameName(t *testing.T) {
 func TestMultipleDisconnectReconnect(t *testing.T) {
 	room := NewRoom("test-room", "", nil)
 
-	room.AddPlayer("Alice")
+	alice := room.AddPlayer("Alice")
 
 	for i := 0; i < 5; i++ {
 		user := room.AddUser(makeSendChan())
-		room.ConnectUserToPlayer(user, "Alice")
+		room.ConnectUserToPlayer(user, alice.ID)
 
 		if !room.GetPlayer("Alice").IsActive {
 			t.Fatalf("Expected Alice to be active on iteration %d", i)
@@ -284,13 +219,13 @@ func TestAllReady(t *testing.T) {
 	sendChan1 := makeSendChan()
 	sendChan2 := makeSendChan()
 
-	room.AddPlayer("Alice")
-	room.AddPlayer("Bob")
+	alice := room.AddPlayer("Alice")
+	bob := room.AddPlayer("Bob")
 
 	user1 := room.AddUser(sendChan1)
 	user2 := room.AddUser(sendChan2)
-	room.ConnectUserToPlayer(user1, "Alice")
-	room.ConnectUserToPlayer(user2, "Bob")
+	room.ConnectUserToPlayer(user1, alice.ID)
+	room.ConnectUserToPlayer(user2, bob.ID)
 
 	if room.AllReady() {
 		t.Error("Expected AllReady to be false initially")
@@ -311,11 +246,11 @@ func TestAllReadySkipsDisconnectedPlayers(t *testing.T) {
 	room := NewRoom("test-room", "", nil)
 	sendChan := makeSendChan()
 
-	room.AddPlayer("Alice")
+	alice := room.AddPlayer("Alice")
 	room.AddPlayer("Bob")
 
 	user := room.AddUser(sendChan)
-	room.ConnectUserToPlayer(user, "Alice")
+	room.ConnectUserToPlayer(user, alice.ID)
 	user.SetReady(true)
 
 	if !room.AllReady() {
@@ -328,13 +263,13 @@ func TestBroadcast(t *testing.T) {
 	sendChan1 := makeSendChan()
 	sendChan2 := makeSendChan()
 
-	room.AddPlayer("Alice")
-	room.AddPlayer("Bob")
+	alice := room.AddPlayer("Alice")
+	bob := room.AddPlayer("Bob")
 
 	user1 := room.AddUser(sendChan1)
 	user2 := room.AddUser(sendChan2)
-	room.ConnectUserToPlayer(user1, "Alice")
-	room.ConnectUserToPlayer(user2, "Bob")
+	room.ConnectUserToPlayer(user1, alice.ID)
+	room.ConnectUserToPlayer(user2, bob.ID)
 
 	testMsg := []byte(`{"action":"test"}`)
 	room.Broadcast(testMsg)
@@ -358,9 +293,9 @@ func TestBroadcastWithFullChannel(t *testing.T) {
 	room := NewRoom("test-room", "", nil)
 	sendChan := make(chan []byte, 1)
 
+	alice := room.AddPlayer("Alice")
 	user := room.AddUser(sendChan)
-	room.ConnectUserToPlayer(user, "Alice")
-	room.AddPlayer("Alice")
+	room.ConnectUserToPlayer(user, alice.ID)
 
 	room.Broadcast([]byte(`{"action":"first"}`))
 	room.Broadcast([]byte(`{"action":"second"}`))
@@ -372,16 +307,16 @@ func TestBroadcastOthers(t *testing.T) {
 	sendChan1 := makeSendChan()
 	sendChan2 := makeSendChan()
 
-	room.AddPlayer("Alice")
-	room.AddPlayer("Bob")
+	alice := room.AddPlayer("Alice")
+	bob := room.AddPlayer("Bob")
 
 	user1 := room.AddUser(sendChan1)
 	user2 := room.AddUser(sendChan2)
-	room.ConnectUserToPlayer(user1, "Alice")
-	room.ConnectUserToPlayer(user2, "Bob")
+	room.ConnectUserToPlayer(user1, alice.ID)
+	room.ConnectUserToPlayer(user2, bob.ID)
 
 	testMsg := []byte(`{"action":"test"}`)
-	room.BroadcastOthers(0, testMsg)
+	room.BroadcastOthers(alice.ID, testMsg)
 
 	select {
 	case msg := <-sendChan1:
@@ -402,7 +337,7 @@ func TestBroadcastOthersSkipsDisconnectedPlayer(t *testing.T) {
 	room.AddPlayer("Bob")
 
 	user := room.AddUser(sendChan)
-	room.ConnectUserToPlayer(user, "Alice")
+	room.ConnectUserToPlayer(user, alice.ID)
 
 	room.BroadcastOthers(alice.ID, []byte(`{"action":"test"}`))
 }
@@ -446,7 +381,7 @@ func TestPlayerSend(t *testing.T) {
 
 	player := room.AddPlayer("Alice")
 	user := room.AddUser(sendChan)
-	room.ConnectUserToPlayer(user, "Alice")
+	room.ConnectUserToPlayer(user, player.ID)
 
 	testMsg := []byte(`{"action":"test"}`)
 	if !player.Send(testMsg) {
@@ -603,9 +538,9 @@ func TestPlayerJSONSerialization(t *testing.T) {
 	room := NewRoom("test-room", "", nil)
 	sendChan := makeSendChan()
 
-	room.AddPlayer("Alice")
+	alice := room.AddPlayer("Alice")
 	user := room.AddUser(sendChan)
-	room.ConnectUserToPlayer(user, "Alice")
+	room.ConnectUserToPlayer(user, alice.ID)
 	user.SetReady(true)
 
 	players := room.GetPlayers()
@@ -682,9 +617,9 @@ func TestConcurrentBroadcast(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		name := fmt.Sprintf("Player%d", i)
-		room.AddPlayer(name)
+		p := room.AddPlayer(name)
 		user := room.AddUser(makeSendChan())
-		room.ConnectUserToPlayer(user, name)
+		room.ConnectUserToPlayer(user, p.ID)
 		users = append(users, user)
 	}
 

@@ -1,7 +1,9 @@
 package hub
 
+import "PocketDeck/pd-core3/internal/game"
+
 type Player struct {
-	ID       int
+	ID       game.PID
 	Name     string
 	Points   int
 	IsActive bool
@@ -9,7 +11,7 @@ type Player struct {
 	User     *User
 }
 
-func NewPlayer(id int, name string) *Player {
+func NewPlayer(id game.PID, name string) *Player {
 	return &Player{
 		ID:       id,
 		Name:     name,

@@ -15,7 +15,6 @@ func main() {
 	flag.Parse()
 
 	rm := hub.NewRoomManager()
-
 	http.Handle("/", server.NewWebSocketHandler(rm))
 
 	log.Println("Starting server on", *host+":"+*port)

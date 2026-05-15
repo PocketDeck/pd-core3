@@ -25,11 +25,10 @@ type WSC struct {
 	room  *hub.Room
 	state ClientState
 
-	playerName string
-	userID     int
-	send       chan []byte
-	done       chan struct{}
-	closeDone  sync.Once
+	userID    int
+	send      chan []byte
+	done      chan struct{}
+	closeDone sync.Once
 }
 
 func NewWebSocketHandler(rm *hub.RoomManager) http.Handler {
@@ -69,11 +68,23 @@ func (wsc *WSC) markDone() {
 	wsc.closeDone.Do(func() { close(wsc.done) })
 }
 
+func (wsc *WSC) playerID() game.PID {
+	if wsc.room == nil {
+		return game.BroadcastPID
+	}
+	user := wsc.room.GetUser(wsc.userID)
+	if user == nil || user.Player == nil {
+		return game.BroadcastPID
+	}
+	return user.Player.ID
+}
+
 func (wsc *WSC) leaveRoom() {
 	if wsc.room != nil {
+		pid := wsc.playerID()
 		wsc.room.RemoveUser(wsc.userID)
 		if !wsc.room.GameStarted() {
-			wsc.room.RemovePlayer(wsc.playerName)
+			wsc.room.RemovePlayer(pid)
 		}
 		wsc.room.BroadcastPlayerUpdate()
 	}
@@ -203,7 +214,6 @@ func (wsc *WSC) handleJoin(msg map[string]interface{}) {
 func (wsc *WSC) joinRoom(room *hub.Room, name string) {
 	user := room.AddUser(wsc.send)
 	wsc.userID = user.ID
-	wsc.playerName = name
 
 	player := room.GetPlayer(name)
 	if player == nil {
@@ -214,7 +224,7 @@ func (wsc *WSC) joinRoom(room *hub.Room, name string) {
 		return
 	}
 
-	if !room.ConnectUserToPlayer(user, name) {
+	if !room.ConnectUserToPlayer(user, player.ID) {
 		room.RemoveUser(user.ID)
 		wsc.sendError("failed_to_connect")
 		return
@@ -319,12 +329,7 @@ func (wsc *WSC) handleStatus() {
 		})
 	}
 
-	player := wsc.room.GetPlayer(wsc.playerName)
-	playerID := -1
-	if player != nil {
-		playerID = player.ID
-	}
-	gameState := wsc.room.GameState(playerID)
+	gameState := wsc.room.GameState(wsc.playerID())
 
 	resp := map[string]interface{}{
 		"action":  "status",
@@ -354,12 +359,7 @@ func (wsc *WSC) handleGameAction(msg map[string]interface{}) {
 		return
 	}
 
-	player := wsc.room.GetPlayer(wsc.playerName)
-	if player == nil {
-		wsc.sendError("not_bound")
-		return
-	}
-	wsc.room.HandleAction(player.ID, payloadBytes)
+	wsc.room.HandleAction(wsc.playerID(), payloadBytes)
 }
 
 func (wsc *WSC) sendError(err string) {

@@ -82,7 +82,7 @@ func TestNewUnoGameConfig(t *testing.T) {
 
 func TestStart(t *testing.T) {
 	g := NewUnoGame(nil)
-	msgs := g.Start([]int{0, 1})
+	msgs := g.Start([]PID{0, 1})
 
 	if msgs != nil {
 		t.Error("Expected Start to return nil (state is fetched via status)")
@@ -115,7 +115,7 @@ func TestStart(t *testing.T) {
 
 func TestPlayCardColorMatch(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 	g.hands[0] = []Card{{Color: ColorRed, Kind: KindNumber, Value: 5}}
@@ -132,7 +132,7 @@ func TestPlayCardColorMatch(t *testing.T) {
 	}
 	foundPlay := false
 	for _, m := range msgs {
-		if m.Target == -1 {
+		if m.Target == BroadcastPID {
 			var data map[string]interface{}
 			json.Unmarshal(m.Data, &data)
 			if data["action"] == "card_played" {
@@ -160,7 +160,7 @@ func TestPlayCardColorMatch(t *testing.T) {
 
 func TestPlayCardSymbolMatch(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 
 	g.hands[0] = []Card{{Color: ColorBlue, Kind: KindSkip}}
 	g.discard = []Card{{Color: ColorRed, Kind: KindSkip}}
@@ -177,7 +177,7 @@ func TestPlayCardSymbolMatch(t *testing.T) {
 	foundPlay := false
 	foundSkipped := false
 	for _, m := range msgs {
-		if m.Target == -1 {
+		if m.Target == BroadcastPID {
 			var data map[string]interface{}
 			json.Unmarshal(m.Data, &data)
 			switch data["action"] {
@@ -198,7 +198,7 @@ func TestPlayCardSymbolMatch(t *testing.T) {
 
 func TestPlayCardNotYourTurn(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 
 	payload, _ := json.Marshal(map[string]interface{}{
@@ -222,7 +222,7 @@ func TestPlayCardNotYourTurn(t *testing.T) {
 
 func TestPlayCardNotInHand(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 	g.hands[0] = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 5}}
 
@@ -243,7 +243,7 @@ func TestPlayCardNotInHand(t *testing.T) {
 
 func TestPlayCardCannotPlay(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 	g.hands[0] = []Card{{Color: ColorBlue, Kind: KindSkip}}
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 
@@ -264,7 +264,7 @@ func TestPlayCardCannotPlay(t *testing.T) {
 
 func TestPlayWildNeedsColor(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 	g.hands[0] = []Card{{Color: ColorWild, Kind: KindWild}}
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 
@@ -285,7 +285,7 @@ func TestPlayWildNeedsColor(t *testing.T) {
 
 func TestPlayWildWithColor(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 	g.hands[0] = []Card{{Color: ColorWild, Kind: KindWild}}
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 
@@ -299,7 +299,7 @@ func TestPlayWildWithColor(t *testing.T) {
 
 	foundPlay := false
 	for _, m := range msgs {
-		if m.Target == -1 {
+		if m.Target == BroadcastPID {
 			var data map[string]interface{}
 			json.Unmarshal(m.Data, &data)
 			if data["action"] == "card_played" {
@@ -321,7 +321,7 @@ func TestPlayWildWithColor(t *testing.T) {
 
 func TestDrawCard(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 	initialCount := len(g.hands[0])
 
 	payload, _ := json.Marshal(map[string]interface{}{
@@ -350,7 +350,7 @@ func TestDrawCard(t *testing.T) {
 
 func TestDrawCardPenalty(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 	g.drawCounter = 2
 	initialCount := len(g.hands[0])
 
@@ -387,7 +387,7 @@ func TestDrawCardPenalty(t *testing.T) {
 
 func TestSkipEffect(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1, 2})
+	g.Start([]PID{0, 1, 2})
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 
 	g.hands[0] = []Card{{Color: ColorRed, Kind: KindSkip}}
@@ -406,7 +406,7 @@ func TestSkipEffect(t *testing.T) {
 
 func TestReverseEffect(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1, 2})
+	g.Start([]PID{0, 1, 2})
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 	g.hands[0] = []Card{{Color: ColorRed, Kind: KindReverse}}
 	g.currentTurn = 0
@@ -424,7 +424,7 @@ func TestReverseEffect(t *testing.T) {
 
 func TestDraw2Effect(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 	g.hands[0] = []Card{{Color: ColorRed, Kind: KindDraw2}}
 	g.currentTurn = 0
@@ -451,7 +451,7 @@ func TestDraw2Effect(t *testing.T) {
 
 func TestGameOver(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 5}}
 	g.hands[0] = []Card{{Color: ColorRed, Kind: KindNumber, Value: 5}}
 
@@ -470,7 +470,7 @@ func TestGameOver(t *testing.T) {
 
 	foundOver := false
 	for _, m := range msgs {
-		if m.Target == -1 {
+		if m.Target == BroadcastPID {
 			var data map[string]interface{}
 			json.Unmarshal(m.Data, &data)
 			if data["action"] == "game_over" {
@@ -488,7 +488,7 @@ func TestGameOver(t *testing.T) {
 
 func TestUnoCall(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 	g.hands[0] = []Card{
 		{Color: ColorRed, Kind: KindNumber, Value: 5},
@@ -507,7 +507,7 @@ func TestUnoCall(t *testing.T) {
 
 	foundUno := false
 	for _, m := range msgs {
-		if m.Target == -1 {
+		if m.Target == BroadcastPID {
 			var data map[string]interface{}
 			json.Unmarshal(m.Data, &data)
 			if data["action"] == "uno" {
@@ -525,7 +525,7 @@ func TestUnoCall(t *testing.T) {
 
 func TestReverseTwoPlayers(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 	g.hands[0] = []Card{{Color: ColorRed, Kind: KindReverse}}
 	g.currentTurn = 0
@@ -542,7 +542,7 @@ func TestReverseTwoPlayers(t *testing.T) {
 
 	foundSkipped := false
 	for _, m := range msgs {
-		if m.Target == -1 {
+		if m.Target == BroadcastPID {
 			var data map[string]interface{}
 			json.Unmarshal(m.Data, &data)
 			if data["action"] == "player_skipped" {
@@ -557,9 +557,9 @@ func TestReverseTwoPlayers(t *testing.T) {
 
 func TestStatePublic(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 
-	state := g.State(-1)
+	state := g.State(BroadcastPID)
 	stateMap, ok := state.(map[string]interface{})
 	if !ok {
 		t.Fatal("Expected map")
@@ -580,7 +580,7 @@ func TestStatePublic(t *testing.T) {
 
 func TestStatePrivate(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 
 	state := g.State(0)
 	stateMap, ok := state.(map[string]interface{})
@@ -602,7 +602,7 @@ func TestStatePrivate(t *testing.T) {
 
 func TestUnknownActionType(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action": "dance",
@@ -620,7 +620,7 @@ func TestUnknownActionType(t *testing.T) {
 
 func TestInvalidJSONPayload(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 
 	msgs := g.HandleAction(0, []byte("not json"))
 	if len(msgs) == 0 {
@@ -635,7 +635,7 @@ func TestInvalidJSONPayload(t *testing.T) {
 
 func TestGameFinishedNoAction(t *testing.T) {
 	g := NewUnoGame(nil)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 	g.state = StateFinished
 	g.winner = 0
 
@@ -653,7 +653,7 @@ func TestPlayAfterDrawConfig(t *testing.T) {
 		"playAfterDraw": false,
 	}
 	g := NewUnoGame(config)
-	g.Start([]int{0, 1})
+	g.Start([]PID{0, 1})
 
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 	g.hands[0] = []Card{{Color: ColorRed, Kind: KindNumber, Value: 5}}
@@ -680,5 +680,31 @@ func TestPlayAfterDrawConfig(t *testing.T) {
 	}
 	if hasKeepOrPlay {
 		t.Error("Should not send keep_or_play when PlayAfterDraw is false")
+	}
+}
+
+func TestSquashIDs(t *testing.T) {
+	tests := []struct {
+		input []PID
+		want  []PID
+	}{
+		{[]PID{6, 2, 3, 10}, []PID{2, 0, 1, 3}},
+		{[]PID{0, 1, 2}, []PID{0, 1, 2}},
+		{[]PID{5, 3, 1}, []PID{2, 1, 0}},
+		{[]PID{10}, []PID{0}},
+		{nil, nil},
+	}
+	for _, tt := range tests {
+		got := SquashIDs(tt.input)
+		if len(got) != len(tt.want) {
+			t.Errorf("SquashIDs(%v) = %v, want %v", tt.input, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tt.want[i] {
+				t.Errorf("SquashIDs(%v) = %v, want %v", tt.input, got, tt.want)
+				break
+			}
+		}
 	}
 }
