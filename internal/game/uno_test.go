@@ -122,7 +122,6 @@ func TestPlayCardColorMatch(t *testing.T) {
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action":     "play_card",
-		"card":       map[string]interface{}{"color": "red", "kind": "number", "value": 5},
 		"hand_index": 0,
 	})
 	msgs := g.HandleAction(0, payload)
@@ -166,8 +165,8 @@ func TestPlayCardSymbolMatch(t *testing.T) {
 	g.discard = []Card{{Color: ColorRed, Kind: KindSkip}}
 
 	payload, _ := json.Marshal(map[string]interface{}{
-		"action": "play_card",
-		"card":   map[string]interface{}{"color": "blue", "kind": "skip"},
+		"action":     "play_card",
+		"hand_index": 0,
 	})
 	msgs := g.HandleAction(0, payload)
 
@@ -202,8 +201,8 @@ func TestPlayCardNotYourTurn(t *testing.T) {
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 
 	payload, _ := json.Marshal(map[string]interface{}{
-		"action": "play_card",
-		"card":   map[string]interface{}{"color": "red", "kind": "number", "value": 5},
+		"action":     "play_card",
+		"hand_index": 0,
 	})
 	msgs := g.HandleAction(1, payload)
 
@@ -227,8 +226,8 @@ func TestPlayCardNotInHand(t *testing.T) {
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 5}}
 
 	payload, _ := json.Marshal(map[string]interface{}{
-		"action": "play_card",
-		"card":   map[string]interface{}{"color": "red", "kind": "number", "value": 7},
+		"action":     "play_card",
+		"hand_index": 5,
 	})
 	msgs := g.HandleAction(0, payload)
 	if len(msgs) == 0 {
@@ -248,8 +247,8 @@ func TestPlayCardCannotPlay(t *testing.T) {
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 
 	payload, _ := json.Marshal(map[string]interface{}{
-		"action": "play_card",
-		"card":   map[string]interface{}{"color": "blue", "kind": "skip"},
+		"action":     "play_card",
+		"hand_index": 0,
 	})
 	msgs := g.HandleAction(0, payload)
 	if len(msgs) == 0 {
@@ -269,8 +268,8 @@ func TestPlayWildNeedsColor(t *testing.T) {
 	g.discard = []Card{{Color: ColorRed, Kind: KindNumber, Value: 3}}
 
 	payload, _ := json.Marshal(map[string]interface{}{
-		"action": "play_card",
-		"card":   map[string]interface{}{"color": "wild", "kind": "wild"},
+		"action":     "play_card",
+		"hand_index": 0,
 	})
 	msgs := g.HandleAction(0, payload)
 	if len(msgs) == 0 {
@@ -291,7 +290,6 @@ func TestPlayWildWithColor(t *testing.T) {
 
 	payload, _ := json.Marshal(map[string]interface{}{
 		"action":     "play_card",
-		"card":       map[string]interface{}{"color": "wild", "kind": "wild"},
 		"wildColor":  "blue",
 		"hand_index": 0,
 	})
@@ -394,8 +392,8 @@ func TestSkipEffect(t *testing.T) {
 	g.currentTurn = 0
 
 	payload, _ := json.Marshal(map[string]interface{}{
-		"action": "play_card",
-		"card":   map[string]interface{}{"color": "red", "kind": "skip"},
+		"action":     "play_card",
+		"hand_index": 0,
 	})
 	g.HandleAction(0, payload)
 
@@ -412,8 +410,8 @@ func TestReverseEffect(t *testing.T) {
 	g.currentTurn = 0
 
 	payload, _ := json.Marshal(map[string]interface{}{
-		"action": "play_card",
-		"card":   map[string]interface{}{"color": "red", "kind": "reverse"},
+		"action":     "play_card",
+		"hand_index": 0,
 	})
 	g.HandleAction(0, payload)
 
@@ -430,8 +428,8 @@ func TestDraw2Effect(t *testing.T) {
 	g.currentTurn = 0
 
 	payload, _ := json.Marshal(map[string]interface{}{
-		"action": "play_card",
-		"card":   map[string]interface{}{"color": "red", "kind": "draw2"},
+		"action":     "play_card",
+		"hand_index": 0,
 	})
 	g.HandleAction(0, payload)
 
@@ -456,8 +454,8 @@ func TestGameOver(t *testing.T) {
 	g.hands[0] = []Card{{Color: ColorRed, Kind: KindNumber, Value: 5}}
 
 	payload, _ := json.Marshal(map[string]interface{}{
-		"action": "play_card",
-		"card":   map[string]interface{}{"color": "red", "kind": "number", "value": 5},
+		"action":     "play_card",
+		"hand_index": 0,
 	})
 	msgs := g.HandleAction(0, payload)
 
@@ -496,8 +494,8 @@ func TestUnoCall(t *testing.T) {
 	}
 
 	payload, _ := json.Marshal(map[string]interface{}{
-		"action": "play_card",
-		"card":   map[string]interface{}{"color": "red", "kind": "number", "value": 5},
+		"action":     "play_card",
+		"hand_index": 0,
 	})
 	msgs := g.HandleAction(0, payload)
 
@@ -531,8 +529,8 @@ func TestReverseTwoPlayers(t *testing.T) {
 	g.currentTurn = 0
 
 	payload, _ := json.Marshal(map[string]interface{}{
-		"action": "play_card",
-		"card":   map[string]interface{}{"color": "red", "kind": "reverse"},
+		"action":     "play_card",
+		"hand_index": 0,
 	})
 	msgs := g.HandleAction(0, payload)
 

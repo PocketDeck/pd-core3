@@ -183,6 +183,8 @@ func (u *UnoGame) HandleAction(playerID PID, payload []byte) []GameMessage {
 		return u.handlePlay(playerID, action)
 	case "draw_card":
 		return u.handleDraw(playerID)
+	case "keep":
+		return u.handleKeep(playerID)
 	case "call_uno":
 		return u.handleCallUno(playerID)
 	case "declare_color":
@@ -199,35 +201,21 @@ func (u *UnoGame) handlePlay(playerID PID, action map[string]interface{}) []Game
 		return u.errTo(playerID, "not_your_turn")
 	}
 
-	if u.playAfterDrawIndex >= 0 {
-		idx, ok := action["hand_index"].(float64)
-		if !ok || int(idx) != u.playAfterDrawIndex {
-			return u.errTo(playerID, "must_play_drawn_card")
-		}
-	}
-
-	var card Card
-	cardRaw, ok := action["card"].(map[string]interface{})
+	idxRaw, ok := action["hand_index"].(float64)
 	if !ok {
-		return u.errTo(playerID, "missing_card")
+		return u.errTo(playerID, "missing_hand_index")
 	}
-	card.Color = CardColor(cardRaw["color"].(string))
-	card.Kind = CardKind(cardRaw["kind"].(string))
-	if v, ok := cardRaw["value"].(float64); ok {
-		card.Value = int(v)
+	idx := int(idxRaw)
+
+	if u.playAfterDrawIndex >= 0 && idx != u.playAfterDrawIndex {
+		return u.errTo(playerID, "must_play_drawn_card")
 	}
 
 	hand := u.hands[playerID]
-	idx := -1
-	for i, c := range hand {
-		if cardsEqual(c, card) {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
+	if idx < 0 || idx >= len(hand) {
 		return u.errTo(playerID, "card_not_in_hand")
 	}
+	card := hand[idx]
 
 	if !u.canPlay(card) {
 		return u.errTo(playerID, "cannot_play_card")
@@ -411,6 +399,17 @@ func (u *UnoGame) handleDraw(playerID PID) []GameMessage {
 
 	u.playAfterDrawIndex = -1
 	return append(msgs, u.nextTurnMsg()...)
+}
+
+func (u *UnoGame) handleKeep(playerID PID) []GameMessage {
+	if playerID != u.currentPlayerID() {
+		return u.errTo(playerID, "not_your_turn")
+	}
+	if u.playAfterDrawIndex < 0 {
+		return u.errTo(playerID, "nothing_to_keep")
+	}
+	u.playAfterDrawIndex = -1
+	return u.nextTurnMsg()
 }
 
 func (u *UnoGame) handleCallUno(playerID PID) []GameMessage {

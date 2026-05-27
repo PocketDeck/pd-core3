@@ -300,14 +300,22 @@ If `playAfterDraw` is enabled and the drawn card can be played:
 { "action": "keep_or_play", "card": [{...}], "played_at_index": 7 }
 ```
 
+Client responds with either `play_card` to play it or `keep` to keep it:
+
+**Keep drawn card (skip playing):**
+```json
+{ "action": "keep" }
+```
+The server advances the turn.
+
 **Play a card:**
 ```json
 {
   "action": "play_card",
-  "card": { "color": "red", "kind": "number", "value": 5 },
   "hand_index": 0,
   "wildColor": "blue"
 }
+```
 ```
 `hand_index` is optional (used when you must play the just-drawn card).  
 `wildColor` is required for wild/wilddraw4 cards.
