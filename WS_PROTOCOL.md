@@ -317,7 +317,7 @@ The server advances the turn.
 }
 ```
 ```
-`hand_index` is optional (used when you must play the just-drawn card).  
+`hand_index` is required.  
 `wildColor` is required for wild/wilddraw4 cards.
 
 Response (broadcast):
@@ -380,7 +380,7 @@ Response (broadcast):
 { "action": "error", "error": "not_your_turn" }
 ```
 
-Possible errors: `not_your_turn`, `card_not_in_hand`, `cannot_play_card`, `must_declare_color`, `missing_card`, `must_play_drawn_card`, `invalid_action`, `unknown_game_action`, `deck_empty`, `not_bound`, `missing_payload`, `invalid_payload`
+Possible errors: `not_your_turn`, `card_not_in_hand`, `cannot_play_card`, `must_declare_color`, `missing_hand_index`, `must_play_drawn_card`, `nothing_to_keep`, `invalid_action`, `unknown_game_action`, `deck_empty`, `not_bound`, `missing_payload`, `invalid_payload`
 
 ---
 
