@@ -187,8 +187,6 @@ func (u *UnoGame) HandleAction(playerID PID, payload []byte) []GameMessage {
 		return u.handleKeep(playerID)
 	case "call_uno":
 		return u.handleCallUno(playerID)
-	case "declare_color":
-		return u.handleDeclareColor(playerID, action)
 	case "reorder_hand":
 		return u.handleReorder(playerID, action)
 	default:
@@ -420,36 +418,6 @@ func (u *UnoGame) handleCallUno(playerID PID) []GameMessage {
 	return msgs
 }
 
-func (u *UnoGame) handleDeclareColor(playerID PID, action map[string]interface{}) []GameMessage {
-	color, ok := action["color"].(string)
-	if !ok || color == "" || color == "wild" {
-		return u.errTo(playerID, "invalid_color")
-	}
-	if playerID != u.currentPlayerID() {
-		return u.errTo(playerID, "not_your_turn")
-	}
-	hand := u.hands[playerID]
-	idx, ok := action["hand_index"].(float64)
-	if !ok || int(idx) >= len(hand) {
-		return u.errTo(playerID, "invalid_hand_index")
-	}
-	card := hand[int(idx)]
-	if card.Kind != KindWild && card.Kind != KindWildDraw4 {
-		return u.errTo(playerID, "not_a_wild_card")
-	}
-	u.hands[playerID][int(idx)] = Card{
-		Color: CardColor(color),
-		Kind:  card.Kind,
-		Value: 0,
-	}
-	msgs := u.msg(map[string]interface{}{
-		"action": "color_declared",
-		"player": playerID,
-		"color":  color,
-	})
-	return msgs
-}
-
 func (u *UnoGame) handleReorder(playerID PID, action map[string]interface{}) []GameMessage {
 	f, ok := action["from"].(float64)
 	if !ok {
@@ -515,6 +483,9 @@ func (u *UnoGame) canPlay(card Card) bool {
 	}
 
 	if card.Kind == top.Kind {
+		if card.Kind == KindNumber {
+			return card.Value == top.Value
+		}
 		return true
 	}
 
@@ -634,8 +605,4 @@ func shuffle(deck []Card) {
 	rand.Shuffle(len(deck), func(i, j int) {
 		deck[i], deck[j] = deck[j], deck[i]
 	})
-}
-
-func cardsEqual(a, b Card) bool {
-	return a.Color == b.Color && a.Kind == b.Kind && a.Value == b.Value
 }

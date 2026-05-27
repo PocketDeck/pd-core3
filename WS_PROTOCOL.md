@@ -320,11 +320,6 @@ The server advances the turn.
 `hand_index` is required.  
 `wildColor` is required for wild/wilddraw4 cards.
 
-Response (broadcast):
-```json
-{ "action": "card_played", "player": 0, "card": {...}, "hand_index": 0 }
-```
-
 **Call Uno:**
 ```json
 { "action": "call_uno" }
@@ -332,15 +327,6 @@ Response (broadcast):
 Response (broadcast):
 ```json
 { "action": "uno_called", "player": 0 }
-```
-
-**Declare wild color:**
-```json
-{ "action": "declare_color", "color": "blue", "hand_index": 3 }
-```
-Response (broadcast):
-```json
-{ "action": "color_declared", "player": 0, "color": "blue" }
 ```
 
 ### Event Messages (broadcast)
