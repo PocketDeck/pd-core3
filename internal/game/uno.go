@@ -562,6 +562,9 @@ func (u *UnoGame) State(playerID PID) any {
 	if hand, ok := u.hands[playerID]; ok {
 		publicState["hand"] = hand
 	}
+	if playerID != BroadcastPID {
+		publicState["myId"] = playerID
+	}
 	return publicState
 }
 
