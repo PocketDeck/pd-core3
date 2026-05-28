@@ -147,8 +147,13 @@ func (r *Room) GameType() game.GameType {
 func (r *Room) StartGame(playerIDs []game.PID) {
 	r.mu.Lock()
 	if r.game != nil {
-		r.mu.Unlock()
-		return
+		stateVal := r.game.State(game.BroadcastPID)
+		stateMap, ok := stateVal.(map[string]interface{})
+		if !ok || stateMap["state"] != game.StateFinished {
+			r.mu.Unlock()
+			return
+		}
+		r.game = nil
 	}
 
 	squashed := game.SquashIDs(playerIDs)
@@ -184,6 +189,13 @@ func (r *Room) HandleAction(playerID game.PID, payload []byte) {
 	}
 	messages := r.game.HandleAction(playerID, payload)
 	r.processMessages(messages, playerID)
+
+	stateVal := r.game.State(game.BroadcastPID)
+	if stateMap, ok := stateVal.(map[string]interface{}); ok {
+		if s, ok := stateMap["state"].(game.GameState); ok && s == game.StateFinished {
+			r.resetForNewGame()
+		}
+	}
 }
 
 func (r *Room) processMessages(messages []game.GameMessage, excludePID game.PID) {
@@ -305,4 +317,15 @@ func (r *Room) BroadcastPlayerUpdate() {
 		"players": playerList,
 	})
 	r.Broadcast(updateMsg)
+}
+
+func (r *Room) resetForNewGame() {
+	r.mu.Lock()
+	for _, p := range r.players {
+		if p.User != nil {
+			p.User.SetReady(false)
+		}
+	}
+	r.mu.Unlock()
+	r.BroadcastPlayerUpdate()
 }
